@@ -47,10 +47,10 @@ public class SmartCommitKafkaConsumerTest {
     }
 
     /**
-     * In this test, we are going to produce several records and concurrently read them by a
-     * {@link SmartCommitKafkaConsumer} instance. This instance does not read all of the records,
-     * and stops after reading some. Then we expect that a second consumer which becomes
-     * live on a same consumer group, consumed all records which are not acked yet
+     * In this test, we are going to produce several records and concurrently read them by several
+     * {@link SmartCommitKafkaConsumer} instances. The first consumer instance does not read all of
+     * the records, and stops after reading some. Then we expect that a second consumer which
+     * becomes live on a same consumer group, consumed all records which are not acked yet
      * (i.e., the ones which are not committed according to the offset tracker logic of the
      * transporter source).
      */
@@ -74,8 +74,8 @@ public class SmartCommitKafkaConsumerTest {
         });
         producerThread.start();
 
-        // Start transporter source: read/ack several records (not all of them).
-        Map<Integer /*partition*/, Long /*offset*/> maxAckedByTransporterSource = new HashMap<>();
+        // Start first consumer: read/ack several records (not all of them).
+        Map<Integer /*partition*/, Long /*offset*/> maxAckedByFirstConsumer = new HashMap<>();
         Properties consumerProperties = new Properties();
         String groupId = "custom-group";
         consumerProperties.put(GROUP_ID_CONFIG, groupId);
@@ -105,7 +105,7 @@ public class SmartCommitKafkaConsumerTest {
                     continue;
                 }
                 partitionOffsets.add(new PartitionOffset(record.partition(), record.offset()));
-                maxAckedByTransporterSource.put(record.partition(), record.offset());
+                maxAckedByFirstConsumer.put(record.partition(), record.offset());
             }
 
             // Acks are not necessary ordered so we shuffle them.
@@ -147,7 +147,7 @@ public class SmartCommitKafkaConsumerTest {
         for (int i = 0; i < NUM_PARTITIONS; i++) {
             // Commit offsets are done on page heads. (See OffsetTracker for more details)
             long expectedInitialOffsetToPoll =
-                    (maxAckedByTransporterSource.getOrDefault(i, 0L) + 1) / pageSize * pageSize;
+                    (maxAckedByFirstConsumer.getOrDefault(i, 0L) + 1) / pageSize * pageSize;
             Long minOffsetPolled = minPolledBySecondConsumer.get(i);
 
             if (minOffsetPolled != null) {

@@ -45,7 +45,7 @@ public class EmbeddedKafkaServer implements Closeable {
         try {
             localIp = InetAddress.getLocalHost().getHostAddress();
         } catch (UnknownHostException e) {
-            Assert.fail("Failed to get local host address. e= " + e.getMessage());
+            throw new AssertionError("Failed to get local host address", e);
         }
     }
 

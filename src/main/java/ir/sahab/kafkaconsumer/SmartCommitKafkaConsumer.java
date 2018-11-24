@@ -45,7 +45,10 @@ import java.util.concurrent.TimeoutException;
  * Instead calls {@link #ack(PartitionOffset)} for the records which their process is completed,
  * then the offsets will be committed automatically in a manner which <i>at least once delivery</i>
  * is guaranteed. For this reason an {@link OffsetTracker} object is used but it is hidden
- * from the client of this class.
+ * from the client of this class. In fact, offsets of each partition are tracked in several
+ * pages, each of them responsible for a specific range of offsets.
+ * When all offsets of some consecutive pages are acked, the last offset will be committed
+ * automatically.
  *
  * Here is its sample usage:
  * <pre>
@@ -64,6 +67,8 @@ import java.util.concurrent.TimeoutException;
  *          });
  *      }
  *  }
+ *
+ * Note that offsets will be committed in pages
  * </pre>
  */
 public class SmartCommitKafkaConsumer<K, V> implements Closeable {
@@ -136,6 +141,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * @param kafkaConsumerProperties the properties of {@link KafkaConsumer}. It should contains
      * at least bootstrap servers, serializer and de-serializer classes. Because of the smart
      * commit feature, the 'enable_auto_commit_config' should not be activated.
+     * @throws IllegalArgumentException if the mandatory Kafka consumer properties are not provided,
+     * or other argument values are not in their expected valid ranges.
      */
     public SmartCommitKafkaConsumer(Properties kafkaConsumerProperties) {
         this(kafkaConsumerProperties, 10_000, 1000, 10_000);
@@ -148,7 +155,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * will be override with value 'false'.
      * @param offsetTrackerPageSize the size of each page in offset tracker. Offsets will be
      * committed just when some consecutive pages become fully acked. In fact lower page sizes,
-     * causes more offset commits.
+     * causes more frequent commits.
      * @param offsetTrackerMaxOpenPagesPerPartition maximum number of open pages (pages which have
      * tracked but not acked offsets). After reaching to this limit on a partition, reading from
      * Kafka topic will be blocked, waiting for receiving more pending acks from the client.
@@ -159,6 +166,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * acked.
      * @param maxQueuedRecords maximum number of records which can be queued to be later polled by
      * the client.
+     * @throws IllegalArgumentException if the mandatory Kafka consumer properties are not provided,
+     * or other argument values are not in their expected valid ranges.
      */
     public SmartCommitKafkaConsumer(Properties kafkaConsumerProperties,
             int offsetTrackerPageSize, int offsetTrackerMaxOpenPagesPerPartition,
@@ -355,7 +364,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      */
     private void handleAcks() {
         int size = unappliedAcks.size();
-        if (size == 0) return;
+        if (size == 0) {
+            return;
+        }
         List<PartitionOffset> offsets = new ArrayList<>(size);
         unappliedAcks.drainTo(offsets, size);
         Map<TopicPartition, OffsetAndMetadata> offsetsToCommit = new HashMap<>();
