@@ -1,10 +1,5 @@
 package ir.sahab.kafkaconsumer;
 
-import org.apache.commons.io.FileUtils;
-import org.apache.zookeeper.server.NIOServerCnxnFactory;
-import org.apache.zookeeper.server.ServerCnxnFactory;
-import org.apache.zookeeper.server.ZooKeeperServer;
-
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -13,6 +8,10 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.attribute.FileAttribute;
+import org.apache.commons.io.FileUtils;
+import org.apache.zookeeper.server.NIOServerCnxnFactory;
+import org.apache.zookeeper.server.ServerCnxnFactory;
+import org.apache.zookeeper.server.ZooKeeperServer;
 
 /**
  * An embedded ZK server which is provided to use in unit tests.

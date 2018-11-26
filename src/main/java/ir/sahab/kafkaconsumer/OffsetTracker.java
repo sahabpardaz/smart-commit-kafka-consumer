@@ -1,10 +1,6 @@
 package ir.sahab.kafkaconsumer;
 
 import ir.sahab.logthrottle.LogThrottle;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -12,7 +8,9 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.SortedSet;
 import java.util.TreeSet;
-
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Tracker for Kafka consumed records which are delivered to their targets. Here is the problem

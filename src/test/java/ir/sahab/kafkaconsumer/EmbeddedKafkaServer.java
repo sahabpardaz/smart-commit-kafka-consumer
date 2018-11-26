@@ -1,17 +1,5 @@
 package ir.sahab.kafkaconsumer;
 
-import kafka.admin.TopicCommand;
-import kafka.admin.TopicCommand.TopicCommandOptions;
-import kafka.server.KafkaConfig;
-import kafka.server.KafkaServerStartable;
-import kafka.utils.ZkUtils;
-
-import org.apache.commons.io.FileUtils;
-import org.apache.kafka.common.security.JaasUtils;
-import org.junit.Assert;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -22,6 +10,15 @@ import java.nio.file.Files;
 import java.nio.file.attribute.FileAttribute;
 import java.util.Arrays;
 import java.util.Properties;
+import kafka.admin.TopicCommand;
+import kafka.admin.TopicCommand.TopicCommandOptions;
+import kafka.server.KafkaConfig;
+import kafka.server.KafkaServerStartable;
+import kafka.utils.ZkUtils;
+import org.apache.commons.io.FileUtils;
+import org.apache.kafka.common.security.JaasUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * An embedded Kafka server which is provided to use in unit tests.

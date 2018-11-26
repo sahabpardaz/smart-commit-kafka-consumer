@@ -8,20 +8,6 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
 
 import ir.sahab.logthrottle.LogThrottle;
-
-import joptsimple.internal.Strings;
-import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
-import org.apache.kafka.clients.consumer.OffsetCommitCallback;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.errors.InterruptException;
-import org.apache.kafka.common.errors.WakeupException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -38,6 +24,18 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
+import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.consumer.OffsetCommitCallback;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.errors.WakeupException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 /**
  * A wrapper on {@link KafkaConsumer} which implements <i>smart commit</i> feature.
@@ -224,7 +222,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     public void subscribe(String topic) {
         checkState(this.topic == null, "It is already subscribed/assigned. You should call either "
                 + "subscribe() or assign() just once.");
-        checkArgument(!Strings.isNullOrEmpty(topic));
+        checkArgument(topic != null && !topic.isEmpty());
 
         kafkaConsumer.subscribe(Collections.singleton(topic), rebalanceListener);
         this.topic = topic;
@@ -238,7 +236,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     public void assign(String topic, List<Integer> partitions) {
         checkState(this.topic == null, "It is already subscribed/assigned. You should call either "
                 + "subscribe() or assign() just once.");
-        checkArgument(!Strings.isNullOrEmpty(topic));
+        checkArgument(topic != null && !topic.isEmpty());
         requireNonNull(partitions);
         checkArgument(!partitions.isEmpty());
 
