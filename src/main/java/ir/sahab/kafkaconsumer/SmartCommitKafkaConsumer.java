@@ -7,6 +7,9 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMI
 import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
 
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
@@ -129,6 +132,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * the {@link #offsetTracker}.
      */
     private final ConsumerRebalanceListener rebalanceListener;
+
+    private final MetricRegistry metricRegistry = new MetricRegistry();
+    private JmxReporter reporter;
 
     private String topic;
     private volatile boolean stop = false;
@@ -254,7 +260,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     public void start() throws InterruptedException, IOException {
         checkState(topic != null, "You should first call either subscribe() or assign().");
         checkState(!thread.isAlive(), "start() is called but Kafka consumer is already started.");
-        logger.info("Starting transporter source...");
+        logger.info("Starting smart commit kafka consumer of {} topic...", topic);
+        initMetrics();
 
         // Ensure connection to Kafka topic.
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -267,6 +274,18 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         }
 
         thread.start();
+    }
+
+    /**
+     * Registers metrics and starts JMX reporter.
+     */
+    private void initMetrics() {
+        metricRegistry.register("unappliedAcks", (Gauge) unappliedAcks::size);
+        metricRegistry.register("queuedRecordsSize", (Gauge) queuedRecords::size);
+        reporter = JmxReporter.forRegistry(metricRegistry)
+                              .inDomain("smart-commit-kafka-consumer." + topic)
+                              .build();
+        reporter.start();
     }
 
     /**
@@ -329,7 +348,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         } catch (InterruptedException e) {
             throw new AssertionError("Unexpected interrupt.", e);
         }
-        kafkaConsumer.close();
+        try {
+            kafkaConsumer.close();
+        } finally {
+            if (reporter != null) {
+                reporter.close();
+            }
+        }
     }
 
 
