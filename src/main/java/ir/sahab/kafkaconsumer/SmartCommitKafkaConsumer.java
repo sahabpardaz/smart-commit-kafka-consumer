@@ -7,6 +7,9 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMI
 import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
 
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
@@ -90,6 +93,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     private static final int MAX_UNAPPLIED_ACKS =
             MAX_EXPECTED_INPUT_ACKS_PER_MILLIS * POLL_TIMEOUT_MILLIS;
 
+    private final int maxQueuedRecords;
+
     /**
      * The underlying Kafka consumer which is wrapped by this class.
      */
@@ -129,6 +134,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * the {@link #offsetTracker}.
      */
     private final ConsumerRebalanceListener rebalanceListener;
+
+    private final MetricRegistry metricRegistry = new MetricRegistry();
+    private JmxReporter reporter;
 
     private String topic;
     private volatile boolean stop = false;
@@ -178,6 +186,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         checkArgument(offsetTrackerPageSize > 0);
         checkArgument(offsetTrackerMaxOpenPagesPerPartition > 0);
         checkArgument(maxQueuedRecords > 0);
+        this.maxQueuedRecords = maxQueuedRecords;
 
         // Init objects regarding to consuming from Kafka.
         kafkaConsumerProperties.put(ENABLE_AUTO_COMMIT_CONFIG, "false");
@@ -254,7 +263,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     public void start() throws InterruptedException, IOException {
         checkState(topic != null, "You should first call either subscribe() or assign().");
         checkState(!thread.isAlive(), "start() is called but Kafka consumer is already started.");
-        logger.info("Starting transporter source...");
+        logger.info("Starting smart commit kafka consumer of {} topic...", topic);
+        initMetrics();
 
         // Ensure connection to Kafka topic.
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -267,6 +277,21 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         }
 
         thread.start();
+    }
+
+    /**
+     * Registers metrics and starts JMX reporter.
+     */
+    private void initMetrics() {
+        metricRegistry.register("UnappliedAcksFullness", (Gauge) () -> 100 * unappliedAcks.size() / MAX_UNAPPLIED_ACKS);
+        metricRegistry.register("QueuedRecordsFullness",
+                                (Gauge) () -> 100 * queuedRecords.size() / maxQueuedRecords);
+
+        // Exposing metrics by JMX
+        reporter = JmxReporter.forRegistry(metricRegistry)
+                              .inDomain("smart-commit-kafka-consumer." + topic)
+                              .build();
+        reporter.start();
     }
 
     /**
@@ -329,7 +354,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         } catch (InterruptedException e) {
             throw new AssertionError("Unexpected interrupt.", e);
         }
-        kafkaConsumer.close();
+        try {
+            kafkaConsumer.close();
+        } finally {
+            if (reporter != null) {
+                reporter.close();
+            }
+        }
     }
 
 

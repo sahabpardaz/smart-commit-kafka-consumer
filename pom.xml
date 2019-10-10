@@ -6,7 +6,7 @@
 
   <groupId>ir.sahab</groupId>
   <artifactId>smart-commit-kafka-consumer</artifactId>
-  <version>1.0</version>
+  <version>1.1</version>
 
   <repositories>
     <repository>
@@ -90,7 +90,11 @@
       <artifactId>log-throttle</artifactId>
       <version>v1.0</version>
     </dependency>
-
+    <dependency>
+      <groupId>io.dropwizard.metrics</groupId>
+      <artifactId>metrics-jmx</artifactId>
+      <version>4.1.0</version>
+    </dependency>
   </dependencies>
 
   <build>
