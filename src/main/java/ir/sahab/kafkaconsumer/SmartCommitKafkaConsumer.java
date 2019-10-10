@@ -93,6 +93,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     private static final int MAX_UNAPPLIED_ACKS =
             MAX_EXPECTED_INPUT_ACKS_PER_MILLIS * POLL_TIMEOUT_MILLIS;
 
+    private final int maxQueuedRecords;
+
     /**
      * The underlying Kafka consumer which is wrapped by this class.
      */
@@ -184,6 +186,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         checkArgument(offsetTrackerPageSize > 0);
         checkArgument(offsetTrackerMaxOpenPagesPerPartition > 0);
         checkArgument(maxQueuedRecords > 0);
+        this.maxQueuedRecords = maxQueuedRecords;
 
         // Init objects regarding to consuming from Kafka.
         kafkaConsumerProperties.put(ENABLE_AUTO_COMMIT_CONFIG, "false");
@@ -280,8 +283,11 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * Registers metrics and starts JMX reporter.
      */
     private void initMetrics() {
-        metricRegistry.register("unappliedAcks", (Gauge) unappliedAcks::size);
-        metricRegistry.register("queuedRecordsSize", (Gauge) queuedRecords::size);
+        metricRegistry.register("UnappliedAcksFullness", (Gauge) () -> 100 * unappliedAcks.size() / MAX_UNAPPLIED_ACKS);
+        metricRegistry.register("QueuedRecordsFullness",
+                                (Gauge) () -> 100 * queuedRecords.size() / maxQueuedRecords);
+
+        // Exposing metrics by JMX
         reporter = JmxReporter.forRegistry(metricRegistry)
                               .inDomain("smart-commit-kafka-consumer." + topic)
                               .build();
