@@ -26,6 +26,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeoutException;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -77,21 +78,6 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     private static final LogThrottle logThrottle = new LogThrottle(logger);
 
     private static final int POLL_TIMEOUT_MILLIS = 10;
-
-    /**
-     * This is the maximum expected value of the processing throughput. It is also bound
-     * to the Kafka consumption rate. We have used a value which is big enough that is not
-     * reachable in almost all use cases (1 million per second).
-     */
-    private static final int MAX_EXPECTED_INPUT_ACKS_PER_MILLIS = 1000;
-
-    /**
-     * We do not want to block caller on {@link #ack(PartitionOffset)}. So for the queue size of
-     * the {@link #unappliedAcks}  we have calculated the maximum number of acks which can become
-     * pending before returning from {@link KafkaConsumer#poll(long)} method.
-     */
-    private static final int MAX_UNAPPLIED_ACKS =
-            MAX_EXPECTED_INPUT_ACKS_PER_MILLIS * POLL_TIMEOUT_MILLIS;
 
     private final int maxQueuedRecords;
 
@@ -220,7 +206,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 offsetTracker.reset();
             }
         };
-        this.unappliedAcks = new ArrayBlockingQueue<>(MAX_UNAPPLIED_ACKS);
+        this.unappliedAcks = new LinkedBlockingQueue<>();
     }
 
     /**
@@ -283,7 +269,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * Registers metrics and starts JMX reporter.
      */
     private void initMetrics() {
-        metricRegistry.register("UnappliedAcksFullness", (Gauge) () -> 100 * unappliedAcks.size() / MAX_UNAPPLIED_ACKS);
+        metricRegistry.register("UnappliedAcks", (Gauge) unappliedAcks::size);
         metricRegistry.register("QueuedRecordsFullness",
                                 (Gauge) () -> 100 * queuedRecords.size() / maxQueuedRecords);
 
