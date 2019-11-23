@@ -365,7 +365,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
 
     private Thread initConsumerThread() {
-        String threadName = "Kafka reader";
+        String threadName = "Kafka reader of " + topic;
         Thread thread = new Thread(() -> {
             logger.info(threadName + " started.");
 
