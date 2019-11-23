@@ -11,7 +11,7 @@ When all offsets of some consecutive pages are acked, the last offset will be co
 automatically.
 
 ## Sample Usage
-```
+```java
 try (SmartCommitKafkaConsumer kafkaConsumer = new SmartCommitKafkaConsumer(consumerProperties)) {
         kafkaConsumer.subscribe(topic);  // You can assign(topic, partitions) instead.
   
