@@ -7,7 +7,6 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.file.Files;
-import java.nio.file.attribute.FileAttribute;
 import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.server.NIOServerCnxnFactory;
 import org.apache.zookeeper.server.ServerCnxnFactory;
@@ -29,8 +28,8 @@ public class EmbeddedZkServer implements Closeable {
      * {@link #stop()} and {@link #restart()} multiple times.
      */
     public void start() throws IOException, InterruptedException {
-        snapshotDir = Files.createTempDirectory("zk-snapshot", new FileAttribute[0]).toFile();
-        logDir = Files.createTempDirectory("zk-logs", new FileAttribute[0]).toFile();
+        snapshotDir = Files.createTempDirectory("zk-snapshot").toFile();
+        logDir = Files.createTempDirectory("zk-logs").toFile();
         // Why we are going to use local ip and not just localhost or 127.0.0.1 constants?
         // It is because EmbeddedKafkaServer (one of the user of this class), does not works well
         // with localhost.
