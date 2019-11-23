@@ -7,14 +7,15 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
-import java.nio.file.attribute.FileAttribute;
-import java.util.Arrays;
 import java.util.Properties;
-import kafka.admin.TopicCommand;
-import kafka.admin.TopicCommand.TopicCommandOptions;
+import kafka.admin.AdminUtils;
+import kafka.admin.RackAwareMode.Disabled$;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaServerStartable;
+import kafka.utils.ZKStringSerializer$;
 import kafka.utils.ZkUtils;
+import org.I0Itec.zkclient.ZkClient;
+import org.I0Itec.zkclient.ZkConnection;
 import org.apache.commons.io.FileUtils;
 import org.apache.kafka.common.security.JaasUtils;
 import org.slf4j.Logger;
@@ -49,32 +50,44 @@ public class EmbeddedKafkaServer implements Closeable {
     public void start() throws IOException, InterruptedException {
         this.zkServer = new EmbeddedZkServer();
         this.zkServer.start();
-        logDir = Files.createTempDirectory("kafka", new FileAttribute[0]).toFile();
+        logDir = Files.createTempDirectory("kafka").toFile();
         brokerPort = anOpenPort();
 
-        this.kafkaBrokerConfig.setProperty("zookeeper.connect", zkServer.getAddress());
-        this.kafkaBrokerConfig.setProperty("broker.id", "1");
-        this.kafkaBrokerConfig.setProperty("host.name", localIp);
-        this.kafkaBrokerConfig.setProperty("advertised.host.name", localIp);
-        this.kafkaBrokerConfig.setProperty("port", Integer.toString(brokerPort));
-        this.kafkaBrokerConfig.setProperty("log.dir", logDir.getAbsolutePath());
-        this.kafkaBrokerConfig.setProperty("log.flush.interval.messages", String.valueOf(1));
-        this.kafkaBrokerConfig.setProperty("auto.create.topics.enable", "true");
-        this.kafkaBrokerConfig.setProperty("offsets.topic.replication.factor", "1");
+        // Configs 'host.name' and 'advertised.host.name' are deprecated since kafka version 1.1.
+        // Use 'listeners' and 'advertised.listeners' instead of them. See this:
+        // https://kafka.apache.org/11/documentation.html#configuration
+        kafkaBrokerConfig.setProperty(KafkaConfig.ZkConnectProp(), zkServer.getAddress());
+        kafkaBrokerConfig.setProperty(KafkaConfig.BrokerIdProp(), "1");
+        kafkaBrokerConfig.setProperty(KafkaConfig.ListenersProp(),
+                String.format("PLAINTEXT://%s:%s", localIp, brokerPort));
+        kafkaBrokerConfig.setProperty(KafkaConfig.AdvertisedListenersProp(),
+                String.format("PLAINTEXT://%s:%s", localIp, brokerPort));
+        kafkaBrokerConfig.setProperty(KafkaConfig.PortProp(), Integer.toString(brokerPort));
+        kafkaBrokerConfig.setProperty(KafkaConfig.LogDirProp(), logDir.getAbsolutePath());
+        kafkaBrokerConfig.setProperty(KafkaConfig.LogFlushIntervalMessagesProp(), "1");
+        kafkaBrokerConfig.setProperty(KafkaConfig.AutoCreateTopicsEnableProp(), "true");
+        kafkaBrokerConfig.setProperty(KafkaConfig.OffsetsTopicReplicationFactorProp(), "1");
         this.broker = new KafkaServerStartable(new KafkaConfig(this.kafkaBrokerConfig));
         this.broker.startup();
     }
 
     public void createTopic(String topicName, Integer numPartitions) {
-        String[] arguments = new String[]{"--create", "--zookeeper", zkServer.getAddress(),
-                "--replication-factor", "1",
-                "--partitions", "" + numPartitions,
-                "--topic", topicName};
-        TopicCommandOptions opts = new TopicCommandOptions(arguments);
-        ZkUtils zkUtils = ZkUtils.apply(opts.options().valueOf(opts.zkConnectOpt()),
-                30000, 30000, JaasUtils.isZkSecurityEnabled());
-        logger.info("Executing: CreateTopic " + Arrays.toString(arguments));
-        TopicCommand.createTopic(zkUtils, opts);
+        ZkClient zkClient = null;
+        ZkUtils zkUtils;
+        try {
+            // When not initializing the ZkClient with ZKStringSerializer, createTopic will return without error.
+            // The topic will exist in zookeeper and be returned when listing topics, but Kafka itself does
+            // not create the topic.
+            zkClient = new ZkClient(zkServer.getAddress(), 30000, 30000, ZKStringSerializer$.MODULE$);
+            zkUtils = new ZkUtils(zkClient, new ZkConnection(zkServer.getAddress()), JaasUtils.isZkSecurityEnabled());
+            logger.info("Executing create Topic: " + topicName + ", partitions: " + numPartitions
+                    + ", replication-factor: 1.");
+            AdminUtils.createTopic(zkUtils, topicName, numPartitions, 1, new Properties(), Disabled$.MODULE$);
+        } finally {
+            if (zkClient != null) {
+                zkClient.close();
+            }
+        }
     }
 
     public String getBrokerAddress() { return localIp + ":" + brokerPort; }
