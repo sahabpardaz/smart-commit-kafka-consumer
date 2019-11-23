@@ -53,11 +53,11 @@ public class EmbeddedKafkaServer implements Closeable {
         logDir = Files.createTempDirectory("kafka").toFile();
         brokerPort = anOpenPort();
 
+        kafkaBrokerConfig.setProperty(KafkaConfig.ZkConnectProp(), zkServer.getAddress());
+        kafkaBrokerConfig.setProperty(KafkaConfig.BrokerIdProp(), "1");
         // Configs 'host.name' and 'advertised.host.name' are deprecated since kafka version 1.1.
         // Use 'listeners' and 'advertised.listeners' instead of them. See this:
         // https://kafka.apache.org/11/documentation.html#configuration
-        kafkaBrokerConfig.setProperty(KafkaConfig.ZkConnectProp(), zkServer.getAddress());
-        kafkaBrokerConfig.setProperty(KafkaConfig.BrokerIdProp(), "1");
         kafkaBrokerConfig.setProperty(KafkaConfig.ListenersProp(),
                 String.format("PLAINTEXT://%s:%s", localIp, brokerPort));
         kafkaBrokerConfig.setProperty(KafkaConfig.AdvertisedListenersProp(),
@@ -75,9 +75,9 @@ public class EmbeddedKafkaServer implements Closeable {
         ZkClient zkClient = null;
         ZkUtils zkUtils;
         try {
-            // When not initializing the ZkClient with ZKStringSerializer, createTopic will return without error.
-            // The topic will exist in zookeeper and be returned when listing topics, but Kafka itself does
-            // not create the topic.
+            // We have to pass the serializer class to ZkClient constructor Otherwise createTopic will return
+            // without error. The topic will exist in zookeeper and be returned when listing topics, but Kafka
+            // itself does not create the topic.
             zkClient = new ZkClient(zkServer.getAddress(), 30000, 30000, ZKStringSerializer$.MODULE$);
             zkUtils = new ZkUtils(zkClient, new ZkConnection(zkServer.getAddress()), JaasUtils.isZkSecurityEnabled());
             logger.info("Executing create Topic: " + topicName + ", partitions: " + numPartitions

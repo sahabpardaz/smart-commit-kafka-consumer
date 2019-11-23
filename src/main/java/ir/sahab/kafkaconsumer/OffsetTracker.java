@@ -64,7 +64,7 @@ public class OffsetTracker {
     }
 
     /**
-     * Clears all previous tracks. It is applicable when Kafka consumer is closed  or on re-balance.
+     * Clears all previous tracks. It is applicable when Kafka consumer is closed or on re-balance.
      * It is safe to call it from a separate thread then the one you call {@link #ack(int, long)}
      * and {@link #track(int, long)} from.
      */
@@ -91,7 +91,7 @@ public class OffsetTracker {
     /**
      * Tells the tracker that specified offset of the given partition is delivered to its target.
      * @param partition index of partition that the offset belongs to.
-     * @param offset offset which should be tracked.
+     * @param offset offset which is acked.
      * @return empty if there is no new offset which is safe to commit on this partition or the
      *         safe offset for commit if exists.
      */
@@ -134,7 +134,7 @@ public class OffsetTracker {
         /**
          * Tells that specified offset of the partition which this object is responsible for,
          * is delivered to its target.
-         * @param offset offset which should be tracked.
+         * @param offset offset which is acked.
          * @return empty if there is no new offset which is safe to commit on this partition or the
          *         safe offset for commit if exists.
          */
@@ -198,7 +198,7 @@ public class OffsetTracker {
         }
 
         private long offsetToPage(long offset) {
-            return  offset / pageSize;
+            return offset / pageSize;
         }
     }
 
