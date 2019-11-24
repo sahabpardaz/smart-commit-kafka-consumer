@@ -255,8 +255,12 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         // Ensure connection to Kafka topic.
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            executor.submit(() -> kafkaConsumer.poll(0)).get(60, SECONDS);
+            // Using listTopics instead of poll because listTopics block until connected to Kafka server or
+            // timeout happens (based on request timeout configuration)
+            executor.submit(kafkaConsumer::listTopics).get(60, SECONDS);
         } catch (ExecutionException | TimeoutException e) {
+            // Wakeup consumer because listTopics will block kafkaConsumer if it is unable to connect to kafka server.
+            kafkaConsumer.wakeup();
             throw new IOException("Failed connecting to Kafka.", e);
         } finally {
             executor.shutdown();
