@@ -452,7 +452,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * receiving records on poll().
      */
     private void keepConnectionAlive() {
-        if (lastPollTime - System.currentTimeMillis() < (int) (0.7 * maxPollIntervalMillis)) {
+        if (System.currentTimeMillis() - lastPollTime < (int) (0.7 * maxPollIntervalMillis)) {
             return;
         }
 
