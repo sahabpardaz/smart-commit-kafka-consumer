@@ -19,11 +19,7 @@ try (SmartCommitKafkaConsumer kafkaConsumer = new SmartCommitKafkaConsumer(consu
             executorService.submit(() -> {
                 ConsumerRecord record = kafkaConsumer.poll();
                 process(record);
-                try {
-                    kafkaConsumer.ack(new PartitionOffset(record.partition(), record.offset()));
-                } catch (InterruptedException e) {
-                    return;  // We are interrupted as shut down process. So better to give it up.
-                }
+                kafkaConsumer.ack(new PartitionOffset(record.partition(), record.offset()));
             });
         }
 }

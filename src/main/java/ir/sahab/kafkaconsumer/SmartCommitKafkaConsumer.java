@@ -14,6 +14,8 @@ import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -35,6 +37,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.WakeupException;
@@ -61,11 +64,7 @@ import org.slf4j.LoggerFactory;
  *          executorService.submit(() -> {
  *              ConsumerRecord record = kafkaConsumer.poll();
  *              process(record);
- *              try {
- *                  kafkaConsumer.ack(new PartitionOffset(record.partition(), record.offset()));
- *              } catch (InterruptedException e) {
- *                  return;  // We are interrupted as shut down process. So better to give it up.
- *              }
+ *              kafkaConsumer.ack(new PartitionOffset(record.partition(), record.offset()));
  *          });
  *      }
  *  }
@@ -85,7 +84,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * expiration of this timeout, then the consumer is considered failed and the group will rebalance in order to
      * reassign the partitions to another member. Default value is used if client doesn't provide configuration.
      */
-    private static int maxPollIntervalMillis = 300000;
+    private int maxPollIntervalMillis = 300000;
+
+    /**
+     * Last time which method poll() was called. Use this in keepConnectionAlive() to check whether it is necessary
+     * to call poll() again.
+     */
+    private LocalDateTime lastPollTime;
 
     private final int maxQueuedRecords;
 
@@ -281,12 +286,12 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         // Ensure connection to Kafka topic.
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            // Call poll will block until connected to kafka broker and get at least information.
-            // Using listTopics after poll because listTopics block until offset and metadata of each topic fetched or
-            // time out based on request timeout configuration (request.timeout.ms)
             executor.submit(() -> {
                 kafkaConsumer.poll(0);
-                kafkaConsumer.listTopics();
+                Map<String, List<PartitionInfo>> topics = kafkaConsumer.listTopics();
+                if (!topics.containsKey(topic)) {
+                    throw new AssertionError("Subscribed topic does not exist in Kafka server.");
+                }
             }).get(60, SECONDS);
         } catch (ExecutionException | TimeoutException e) {
             // Wakeup consumer because listTopics will block kafkaConsumer if it is unable to connect to kafka server.
@@ -334,19 +339,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     /**
      * Informs that the given offset is processed. When the acks fills some consecutive pages of a
      * partition, the last offset of those completed pages will be committed.
-     * @throws InterruptedException if interrupted while waiting for a free room in the queue of
-     * unapplied acks. In fact, if the size of unapplied acks is chosen properly, we should not
-     * block here.
      */
-    public void ack(PartitionOffset partitionOffset) throws InterruptedException {
-        while (!unappliedAcks.offer(partitionOffset)) {
-            logThrottle.logger("waiting-aks-full").error("The queue for waiting acks is full. "
-                            + "Waiting... [You should never see this message. Consider increasing "
-                            + "queue capacity in code. Current value: {}]",
-                    unappliedAcks.size() + unappliedAcks.remainingCapacity());
-
-            Thread.sleep(1);
-        }
+    public void ack(PartitionOffset partitionOffset) {
+        unappliedAcks.add(partitionOffset);
     }
 
     /**
@@ -392,6 +387,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
             while (!stop) {
                 handleAcks();
                 try {
+                    lastPollTime = LocalDateTime.now();
                     putRecordsInQueue(kafkaConsumer.poll(POLL_TIMEOUT_MILLIS));
                 } catch (WakeupException | InterruptException | InterruptedException e) {
                     if (!stop) {
@@ -440,31 +436,26 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                         + "the max number of open pages]", record.partition());
                 handleAcks();
                 Thread.sleep(1);
+                keepConnectionAlive();
             }
 
-            int lastPollTime = 0;
-            final double ratioOfKeepConnection = 0.5;
             while (!queuedRecords.offer(record)) {
-                if (lastPollTime >= (int) (ratioOfKeepConnection * maxPollIntervalMillis)) {
-                    keepConnectionAlive();
-                    lastPollTime = 0;
-                }
                 handleAcks();
                 Thread.sleep(1);
-                lastPollTime += 1;
+                keepConnectionAlive();
             }
         }
     }
 
     /**
-     * Consumer will not poll anything while retrying for adding polled record to queueRecords because queuedRecords is
-     * full. It may lead to timeout and consumer will be considered failed. We keep connection of kafka alive by
-     * calling poll periodically. Because poll() can return records, pause consumer before reading and resume it after.
+     * Tries to keep the connection to Kafka alive by calling poll() but it first calls pause() to avoid
+     * receiving records on poll().
      */
     private void keepConnectionAlive() {
-        // Method poll of consumer called before call keepConnectionAlive method, so assignment of partitions
-        // happened for consumer. Create a copy of assigned partitions before pause and resume because rebalance during
-        // this process can cause problem. If rebalance happens, retry again.
+        if (lastPollTime.until(LocalDateTime.now(), ChronoUnit.MILLIS) < (int) (0.7 * maxPollIntervalMillis)) {
+            return;
+        }
+
         boolean rebalanceHappened = true;
         while (rebalanceHappened) {
             List<TopicPartition> copyOfAssignedPartitions = new ArrayList<>(assignedPartitions);
@@ -472,7 +463,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 // Stop receiving records from all of assigned partitions to Kafka consumer.
                 kafkaConsumer.pause(copyOfAssignedPartitions);
                 rebalanceHappened = false;
-                // Calling poll with zero second timeout, will return nothing.
+
+                lastPollTime = LocalDateTime.now();
                 kafkaConsumer.poll(0);
                 // Maybe partitions rebalanced so use force resume to assure that consumer can poll records from all
                 // partitions which is assigned to it.
@@ -496,8 +488,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
             try {
                 kafkaConsumer.resume(Collections.singletonList(topicPartition));
             } catch (IllegalStateException e) {
-                logThrottle.logger("re-balance").warn("Unable to resume consumer to poll from topic: {} partition:{}. "
-                        + "It is valid if it has been a re-balance recently.", topicPartition.topic(),
+                logThrottle.logger("re-balance").warn("Unable to resume consumer to poll from topic: {} partition: {}."
+                        + " It is valid if it has been a re-balance recently.", topicPartition.topic(),
                         topicPartition.partition());
             }
         }
