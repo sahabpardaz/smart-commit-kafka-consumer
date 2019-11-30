@@ -90,7 +90,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * Last time which method poll() was called. Use this in keepConnectionAlive() to check whether it is necessary
      * to call poll() again.
      */
-    private LocalDateTime lastPollTime;
+    private long lastPollTime;
 
     private final int maxQueuedRecords;
 
@@ -387,7 +387,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
             while (!stop) {
                 handleAcks();
                 try {
-                    lastPollTime = LocalDateTime.now();
+                    lastPollTime = System.currentTimeMillis();
                     putRecordsInQueue(kafkaConsumer.poll(POLL_TIMEOUT_MILLIS));
                 } catch (WakeupException | InterruptException | InterruptedException e) {
                     if (!stop) {
@@ -452,7 +452,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * receiving records on poll().
      */
     private void keepConnectionAlive() {
-        if (lastPollTime.until(LocalDateTime.now(), ChronoUnit.MILLIS) < (int) (0.7 * maxPollIntervalMillis)) {
+        if (lastPollTime - System.currentTimeMillis() < (int) (0.7 * maxPollIntervalMillis)) {
             return;
         }
 
@@ -464,7 +464,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 kafkaConsumer.pause(copyOfAssignedPartitions);
                 rebalanceHappened = false;
 
-                lastPollTime = LocalDateTime.now();
+                lastPollTime = System.currentTimeMillis();
                 kafkaConsumer.poll(0);
                 // Maybe partitions rebalanced so use force resume to assure that consumer can poll records from all
                 // partitions which is assigned to it.

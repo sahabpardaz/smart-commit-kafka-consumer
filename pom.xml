@@ -17,7 +17,6 @@
 
   <properties>
       <kafka.version>1.1.1</kafka.version>
-      <kafka.client.version>1.1.1</kafka.client.version>
   </properties>
 
   <dependencies>
@@ -43,7 +42,7 @@
     <dependency>
       <groupId>org.apache.kafka</groupId>
       <artifactId>kafka-clients</artifactId>
-      <version>${kafka.client.version}</version>
+      <version>${kafka.version}</version>
       <exclusions>
         <exclusion>
           <artifactId>slf4j-log4j12</artifactId>
@@ -69,7 +68,7 @@
     <dependency>
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
-      <version>2.6</version>
+      <version>2.4</version>
     </dependency>
 
     <dependency>
