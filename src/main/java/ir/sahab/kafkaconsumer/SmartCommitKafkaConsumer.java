@@ -5,6 +5,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG;
+import static org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
 
 import com.codahale.metrics.Gauge;
@@ -13,6 +14,8 @@ import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -26,6 +29,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeoutException;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -33,12 +37,12 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 /**
  * A wrapper on {@link KafkaConsumer} which implements <i>smart commit</i> feature.
@@ -60,11 +64,7 @@ import org.slf4j.LoggerFactory;
  *          executorService.submit(() -> {
  *              ConsumerRecord record = kafkaConsumer.poll();
  *              process(record);
- *              try {
- *                  kafkaConsumer.ack(new PartitionOffset(record.partition(), record.offset()));
- *              } catch (InterruptedException e) {
- *                  return;  // We are interrupted as shut down process. So better to give it up.
- *              }
+ *              kafkaConsumer.ack(new PartitionOffset(record.partition(), record.offset()));
  *          });
  *      }
  *  }
@@ -79,19 +79,18 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     private static final int POLL_TIMEOUT_MILLIS = 10;
 
     /**
-     * This is the maximum expected value of the processing throughput. It is also bound
-     * to the Kafka consumption rate. We have used a value which is big enough that is not
-     * reachable in almost all use cases (1 million per second).
+     * The maximum delay between invocations of poll() when using consumer group management. This places an upper bound
+     * on the amount of time that the consumer can be idle before fetching more records. If poll() is not called before
+     * expiration of this timeout, then the consumer is considered failed and the group will rebalance in order to
+     * reassign the partitions to another member. Default value is used if client doesn't provide configuration.
      */
-    private static final int MAX_EXPECTED_INPUT_ACKS_PER_MILLIS = 1000;
+    private int maxPollIntervalMillis = 300000;
 
     /**
-     * We do not want to block caller on {@link #ack(PartitionOffset)}. So for the queue size of
-     * the {@link #unappliedAcks}  we have calculated the maximum number of acks which can become
-     * pending before returning from {@link KafkaConsumer#poll(long)} method.
+     * Last time which method poll() was called. Use this in keepConnectionAlive() to check whether it is necessary
+     * to call poll() again.
      */
-    private static final int MAX_UNAPPLIED_ACKS =
-            MAX_EXPECTED_INPUT_ACKS_PER_MILLIS * POLL_TIMEOUT_MILLIS;
+    private long lastPollTime;
 
     private final int maxQueuedRecords;
 
@@ -134,6 +133,12 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * the {@link #offsetTracker}.
      */
     private final ConsumerRebalanceListener rebalanceListener;
+
+    /**
+     * List of partitions assigned to consumer after first connection to Kafka or rebalancing. Assigned partitions
+     * cached and will be used later.
+     */
+    private List<TopicPartition> assignedPartitions;
 
     private final MetricRegistry metricRegistry = new MetricRegistry();
     private JmxReporter reporter;
@@ -188,6 +193,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         checkArgument(maxQueuedRecords > 0);
         this.maxQueuedRecords = maxQueuedRecords;
 
+        // Init objects respect to provided config from client.
+        if (kafkaConsumerProperties.containsKey(MAX_POLL_INTERVAL_MS_CONFIG)) {
+            maxPollIntervalMillis = (int) kafkaConsumerProperties.get(MAX_POLL_INTERVAL_MS_CONFIG);
+        } else {
+            kafkaConsumerProperties.put(MAX_POLL_INTERVAL_MS_CONFIG, maxPollIntervalMillis);
+        }
+
         // Init objects regarding to consuming from Kafka.
         kafkaConsumerProperties.put(ENABLE_AUTO_COMMIT_CONFIG, "false");
         this.kafkaConsumer = new KafkaConsumer<>(kafkaConsumerProperties);
@@ -216,11 +228,15 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
             @Override
             public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+                // Update cached partitions
+                assignedPartitions.clear();
+                assignedPartitions.addAll(partitions);
                 logger.info("Kafka consumer partitions assigned: {}", partitions);
                 offsetTracker.reset();
             }
         };
-        this.unappliedAcks = new ArrayBlockingQueue<>(MAX_UNAPPLIED_ACKS);
+        this.unappliedAcks = new LinkedBlockingQueue<>();
+        this.assignedPartitions = new ArrayList<>();
     }
 
     /**
@@ -235,6 +251,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
         kafkaConsumer.subscribe(Collections.singleton(topic), rebalanceListener);
         this.topic = topic;
+        thread.setName("Kafka reader of " + topic);
     }
 
     /**
@@ -269,8 +286,16 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         // Ensure connection to Kafka topic.
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            executor.submit(() -> kafkaConsumer.poll(0)).get(60, SECONDS);
+            executor.submit(() -> {
+                kafkaConsumer.poll(0);
+                Map<String, List<PartitionInfo>> topics = kafkaConsumer.listTopics();
+                if (!topics.containsKey(topic)) {
+                    throw new AssertionError("Subscribed topic does not exist in Kafka server.");
+                }
+            }).get(60, SECONDS);
         } catch (ExecutionException | TimeoutException e) {
+            // Wakeup consumer because listTopics will block kafkaConsumer if it is unable to connect to kafka server.
+            kafkaConsumer.wakeup();
             throw new IOException("Failed connecting to Kafka.", e);
         } finally {
             executor.shutdown();
@@ -283,7 +308,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * Registers metrics and starts JMX reporter.
      */
     private void initMetrics() {
-        metricRegistry.register("UnappliedAcksFullness", (Gauge) () -> 100 * unappliedAcks.size() / MAX_UNAPPLIED_ACKS);
+        metricRegistry.register("UnappliedAcks", (Gauge) unappliedAcks::size);
         metricRegistry.register("QueuedRecordsFullness",
                                 (Gauge) () -> 100 * queuedRecords.size() / maxQueuedRecords);
 
@@ -314,19 +339,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     /**
      * Informs that the given offset is processed. When the acks fills some consecutive pages of a
      * partition, the last offset of those completed pages will be committed.
-     * @throws InterruptedException if interrupted while waiting for a free room in the queue of
-     * unapplied acks. In fact, if the size of unapplied acks is chosen properly, we should not
-     * block here.
      */
-    public void ack(PartitionOffset partitionOffset) throws InterruptedException {
-        while (!unappliedAcks.offer(partitionOffset)) {
-            logThrottle.logger("waiting-aks-full").error("The queue for waiting acks is full. "
-                            + "Waiting... [You should never see this message. Consider increasing "
-                            + "queue capacity in code. Current value: {}]",
-                    unappliedAcks.size() + unappliedAcks.remainingCapacity());
-
-            Thread.sleep(1);
-        }
+    public void ack(PartitionOffset partitionOffset) {
+        unappliedAcks.add(partitionOffset);
     }
 
     /**
@@ -365,26 +380,24 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
 
     private Thread initConsumerThread() {
-        String threadName = "Kafka reader";
-        Thread thread = new Thread(() -> {
-            logger.info(threadName + " started.");
+        return new Thread(() -> {
+            logger.info(Thread.currentThread().getName() + " started.");
 
             // Continuously both handle acks and poll for new records.
             while (!stop) {
                 handleAcks();
                 try {
+                    lastPollTime = System.currentTimeMillis();
                     putRecordsInQueue(kafkaConsumer.poll(POLL_TIMEOUT_MILLIS));
                 } catch (WakeupException | InterruptException | InterruptedException e) {
                     if (!stop) {
                         throw new IllegalStateException("Unexpected interrupt.");
                     }
-                    logger.info(threadName + " interrupted.");
+                    logger.info(Thread.currentThread().getName() + " interrupted.");
                     return;
                 }
             }
         });
-        thread.setName(threadName);
-        return thread;
     }
 
     /**
@@ -413,23 +426,71 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     }
 
     /**
-     * Puts the given records in queue. Meanwhile if the queue is full, it handles new
-     * received acks too.
+     * Puts the given records in queue. Meanwhile if the queue is full, it handles new received acks too.
      */
     private void putRecordsInQueue(ConsumerRecords<K, V> records) throws InterruptedException {
         for (ConsumerRecord<K, V> record : records) {
-
             while (!offsetTracker.track(record.partition(), record.offset())) {
                 logThrottle.logger("tracker-full").error("Offset tracker for partition {} is full. "
                         + "Waiting... [You should never see this message. Consider increasing "
                         + "the max number of open pages]", record.partition());
                 handleAcks();
                 Thread.sleep(1);
+                keepConnectionAlive();
             }
 
             while (!queuedRecords.offer(record)) {
                 handleAcks();
                 Thread.sleep(1);
+                keepConnectionAlive();
+            }
+        }
+    }
+
+    /**
+     * Tries to keep the connection to Kafka alive by calling poll() but it first calls pause() to avoid
+     * receiving records on poll().
+     */
+    private void keepConnectionAlive() {
+        if (System.currentTimeMillis() - lastPollTime < (int) (0.7 * maxPollIntervalMillis)) {
+            return;
+        }
+
+        boolean rebalanceHappened = true;
+        while (rebalanceHappened) {
+            List<TopicPartition> copyOfAssignedPartitions = new ArrayList<>(assignedPartitions);
+            try {
+                // Stop receiving records from all of assigned partitions to Kafka consumer.
+                kafkaConsumer.pause(copyOfAssignedPartitions);
+                rebalanceHappened = false;
+
+                lastPollTime = System.currentTimeMillis();
+                kafkaConsumer.poll(0);
+                // Maybe partitions rebalanced so use force resume to assure that consumer can poll records from all
+                // partitions which is assigned to it.
+                forceResume(copyOfAssignedPartitions);
+            } catch (IllegalStateException e) {
+                // Exception throws if one of the provided partitions is not assigned to this consumer, so rebalance
+                // happened during this process.
+                forceResume(copyOfAssignedPartitions);
+            }
+        }
+
+    }
+
+    /**
+     * Forcefully resume poll from provided partition. If consumer not assigned to a special partition,
+     * it will be ignored.
+     * @param topicPartitions list of partitions
+     */
+    private void forceResume(List<TopicPartition> topicPartitions) {
+        for (TopicPartition topicPartition : topicPartitions) {
+            try {
+                kafkaConsumer.resume(Collections.singletonList(topicPartition));
+            } catch (IllegalStateException e) {
+                logThrottle.logger("re-balance").warn("Unable to resume consumer to poll from topic: {} partition: {}."
+                        + " It is valid if it has been a re-balance recently.", topicPartition.topic(),
+                        topicPartition.partition());
             }
         }
     }

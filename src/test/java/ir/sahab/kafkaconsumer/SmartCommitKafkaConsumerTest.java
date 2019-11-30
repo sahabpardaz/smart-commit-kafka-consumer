@@ -7,6 +7,7 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZE
 import static org.apache.kafka.clients.producer.ProducerConfig.BOOTSTRAP_SERVERS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
+import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -28,6 +29,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class SmartCommitKafkaConsumerTest {
+
     private static final String TOPIC_NAME = "test";
     private static final Integer NUM_PARTITIONS = 3;
     private static EmbeddedKafkaServer kafkaServer;
@@ -149,12 +151,12 @@ public class SmartCommitKafkaConsumerTest {
             Long minOffsetPolled = minPolledBySecondConsumer.get(i);
 
             if (minOffsetPolled != null) {
-                Assert.assertEquals(expectedInitialOffsetToPoll, minOffsetPolled.longValue());
+                assertEquals(expectedInitialOffsetToPoll, minOffsetPolled.longValue());
                 numRecordsReadTotally += maxPolledBySecondConsumer.get(i) + 1;
             } else {
                 numRecordsReadTotally += expectedInitialOffsetToPoll + 1;
             }
         }
-        Assert.assertEquals(numRecordsToProduce, numRecordsReadTotally);
+        assertEquals(numRecordsToProduce, numRecordsReadTotally);
     }
 }
