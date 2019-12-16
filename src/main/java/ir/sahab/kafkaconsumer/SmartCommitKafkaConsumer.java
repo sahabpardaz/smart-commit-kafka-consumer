@@ -195,7 +195,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
         // Init objects respect to provided config from client.
         if (kafkaConsumerProperties.containsKey(MAX_POLL_INTERVAL_MS_CONFIG)) {
-            maxPollIntervalMillis = (int) kafkaConsumerProperties.get(MAX_POLL_INTERVAL_MS_CONFIG);
+            maxPollIntervalMillis = Integer.parseInt(kafkaConsumerProperties.getProperty(MAX_POLL_INTERVAL_MS_CONFIG));
         } else {
             kafkaConsumerProperties.put(MAX_POLL_INTERVAL_MS_CONFIG, maxPollIntervalMillis);
         }
