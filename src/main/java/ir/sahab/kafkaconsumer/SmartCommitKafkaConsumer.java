@@ -359,6 +359,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         return unappliedAcks.size();
     }
 
+    /**
+     * @return the metric registry used for exposing metrics.
+     */
+    public MetricRegistry getMetricRegistry() {
+        return metricRegistry;
+    }
+
     @Override
     public void close() {
         stop = true;
