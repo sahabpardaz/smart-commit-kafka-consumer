@@ -14,8 +14,6 @@ import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -31,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -132,13 +131,19 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * We have used a same callback that does nothing other than writing simple logs and resetting
      * the {@link #offsetTracker}.
      */
-    private final ConsumerRebalanceListener rebalanceListener;
+    private final ConsumerRebalanceListener internalRebalanceListener;
 
     /**
      * List of partitions assigned to consumer after first connection to Kafka or rebalancing. Assigned partitions
      * cached and will be used later.
      */
-    private List<TopicPartition> assignedPartitions;
+    private final List<TopicPartition> assignedPartitions;
+
+    /**
+     * The callback which is called when rebalance happens.
+     * Takes previously assigned partitions and newly assigned partitions as arguments.
+     */
+    private final BiConsumer<List<TopicPartition>, List<TopicPartition>> rebalanceListener;
 
     private final MetricRegistry metricRegistry = new MetricRegistry();
     private JmxReporter reporter;
@@ -156,7 +161,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * or other argument values are not in their expected valid ranges.
      */
     public SmartCommitKafkaConsumer(Properties kafkaConsumerProperties) {
-        this(kafkaConsumerProperties, 10_000, 1000, 10_000);
+        this(kafkaConsumerProperties, 10_000, 1000, 10_000, null);
     }
 
     /**
@@ -181,8 +186,37 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * or other argument values are not in their expected valid ranges.
      */
     public SmartCommitKafkaConsumer(Properties kafkaConsumerProperties,
+                                    int offsetTrackerPageSize, int offsetTrackerMaxOpenPagesPerPartition,
+                                    int maxQueuedRecords) {
+        this(kafkaConsumerProperties, offsetTrackerPageSize, offsetTrackerMaxOpenPagesPerPartition, maxQueuedRecords, null);
+    }
+
+    /**
+     * @param kafkaConsumerProperties the properties of {@link KafkaConsumer}. It should contains
+     * at least bootstrap servers, serializer and de-serializer classes. Because of the smart
+     * commit feature is not consistent with auto commit, the config 'enable_auto_commit_config'
+     * will be override with value 'false'.
+     * @param offsetTrackerPageSize the size of each page in offset tracker. Offsets will be
+     * committed just when some consecutive pages become fully acked. In fact lower page sizes,
+     * causes more frequent commits.
+     * @param offsetTrackerMaxOpenPagesPerPartition maximum number of open pages (pages which have
+     * tracked but not acked offsets). After reaching to this limit on a partition, reading from
+     * Kafka topic will be blocked, waiting for receiving more pending acks from the client.
+     * A good choice is to completely avoid this kind of blockage. For this reason, it is
+     * sufficient to satisfy this equation:
+     * <pre> (pageSize * maxOpenPages * numPartitions) > (maximum number of pending records) </pre>
+     * In the above equation, by pending records we mean the ones which are polled but not yet
+     * acked.
+     * @param maxQueuedRecords maximum number of records which can be queued to be later polled by
+     * the client.
+     * @param rebalanceListener The callback which is called when rebalance happens. Takes previously assigned
+     * partitions and newly assigned partitions as arguments.
+     * @throws IllegalArgumentException if the mandatory Kafka consumer properties are not provided,
+     * or other argument values are not in their expected valid ranges.
+     */
+    public SmartCommitKafkaConsumer(Properties kafkaConsumerProperties,
             int offsetTrackerPageSize, int offsetTrackerMaxOpenPagesPerPartition,
-            int maxQueuedRecords) {
+            int maxQueuedRecords, BiConsumer<List<TopicPartition>, List<TopicPartition>> rebalanceListener) {
 
         requireNonNull(kafkaConsumerProperties);
         checkArgument(kafkaConsumerProperties.containsKey(BOOTSTRAP_SERVERS_CONFIG));
@@ -218,7 +252,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 logger.debug("Offsets committed: " + offsets);
             }
         };
-        this.rebalanceListener = new ConsumerRebalanceListener() {
+        this.internalRebalanceListener = new ConsumerRebalanceListener() {
             @Override
             public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
                 if (!partitions.isEmpty()) {
@@ -228,6 +262,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
             @Override
             public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+                if (rebalanceListener != null) {
+                    rebalanceListener.accept(new ArrayList<>(assignedPartitions), new ArrayList<>(partitions));
+                }
                 // Update cached partitions
                 assignedPartitions.clear();
                 assignedPartitions.addAll(partitions);
@@ -237,6 +274,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         };
         this.unappliedAcks = new LinkedBlockingQueue<>();
         this.assignedPartitions = new ArrayList<>();
+        this.rebalanceListener = rebalanceListener;
     }
 
     /**
@@ -249,7 +287,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 + "subscribe() or assign() just once.");
         checkArgument(topic != null && !topic.isEmpty());
 
-        kafkaConsumer.subscribe(Collections.singleton(topic), rebalanceListener);
+        kafkaConsumer.subscribe(Collections.singleton(topic), internalRebalanceListener);
         this.topic = topic;
         thread.setName("Kafka reader of " + topic);
     }
@@ -308,9 +346,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * Registers metrics and starts JMX reporter.
      */
     private void initMetrics() {
-        metricRegistry.register("UnappliedAcks", (Gauge) unappliedAcks::size);
+        metricRegistry.register("UnappliedAcks", (Gauge<Integer>) unappliedAcks::size);
         metricRegistry.register("QueuedRecordsFullness",
-                                (Gauge) () -> 100 * queuedRecords.size() / maxQueuedRecords);
+                                (Gauge<Double>) () -> 100.0 * queuedRecords.size() / maxQueuedRecords);
 
         // Exposing metrics by JMX
         reporter = JmxReporter.forRegistry(metricRegistry)
