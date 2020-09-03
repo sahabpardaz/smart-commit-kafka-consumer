@@ -128,10 +128,15 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
     /**
      * The callback to set on calling {@link KafkaConsumer#subscribe(Collection)}.
-     * We have used a same callback that does nothing other than writing simple logs and resetting
-     * the {@link #offsetTracker}.
+     * It resets the {@link #offsetTracker} and also calls the rebalance listener provided by the client.
      */
     private final ConsumerRebalanceListener internalRebalanceListener;
+
+    /**
+     * The callback provided by the client which is called when rebalance happens.
+     * Takes previously assigned partitions and newly assigned partitions as arguments.
+     */
+    private final BiConsumer<List<TopicPartition>, List<TopicPartition>> rebalanceListener;
 
     /**
      * List of partitions assigned to consumer after first connection to Kafka or rebalancing. Assigned partitions
@@ -139,11 +144,6 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      */
     private final List<TopicPartition> assignedPartitions;
 
-    /**
-     * The callback which is called when rebalance happens.
-     * Takes previously assigned partitions and newly assigned partitions as arguments.
-     */
-    private final BiConsumer<List<TopicPartition>, List<TopicPartition>> rebalanceListener;
 
     private final MetricRegistry metricRegistry = new MetricRegistry();
     private JmxReporter reporter;
@@ -252,6 +252,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 logger.debug("Offsets committed: " + offsets);
             }
         };
+        this.unappliedAcks = new LinkedBlockingQueue<>();
+        this.assignedPartitions = new ArrayList<>();
+        this.rebalanceListener = rebalanceListener;
         this.internalRebalanceListener = new ConsumerRebalanceListener() {
             @Override
             public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
@@ -272,9 +275,6 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 offsetTracker.reset();
             }
         };
-        this.unappliedAcks = new LinkedBlockingQueue<>();
-        this.assignedPartitions = new ArrayList<>();
-        this.rebalanceListener = rebalanceListener;
     }
 
     /**
