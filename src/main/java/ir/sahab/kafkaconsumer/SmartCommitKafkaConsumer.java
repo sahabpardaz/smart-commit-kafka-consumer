@@ -14,8 +14,6 @@ import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -129,16 +127,21 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
     /**
      * The callback to set on calling {@link KafkaConsumer#subscribe(Collection)}.
-     * We have used a same callback that does nothing other than writing simple logs and resetting
-     * the {@link #offsetTracker}.
+     * It resets the {@link #offsetTracker} and also calls the rebalance listener provided by the client.
      */
-    private final ConsumerRebalanceListener rebalanceListener;
+    private final ConsumerRebalanceListener internalRebalanceListener;
+
+    /**
+     * The listener provided by the client which is called when rebalance happens.
+     */
+    private ConsumerRebalanceListener rebalanceListener;
 
     /**
      * List of partitions assigned to consumer after first connection to Kafka or rebalancing. Assigned partitions
      * cached and will be used later.
      */
-    private List<TopicPartition> assignedPartitions;
+    private final List<TopicPartition> assignedPartitions;
+
 
     private final MetricRegistry metricRegistry = new MetricRegistry();
     private JmxReporter reporter;
@@ -218,11 +221,18 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 logger.debug("Offsets committed: " + offsets);
             }
         };
-        this.rebalanceListener = new ConsumerRebalanceListener() {
+        this.unappliedAcks = new LinkedBlockingQueue<>();
+        this.assignedPartitions = new ArrayList<>();
+        this.internalRebalanceListener = new ConsumerRebalanceListener() {
             @Override
             public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
                 if (!partitions.isEmpty()) {
                     logger.warn("Kafka consumer previous assignment revoked: {}", partitions);
+                }
+
+                // Call user provided listener
+                if (rebalanceListener != null) {
+                    rebalanceListener.onPartitionsRevoked(partitions);
                 }
             }
 
@@ -233,10 +243,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 assignedPartitions.addAll(partitions);
                 logger.info("Kafka consumer partitions assigned: {}", partitions);
                 offsetTracker.reset();
+
+                // Call user provided listener
+                if (rebalanceListener != null) {
+                    rebalanceListener.onPartitionsAssigned(partitions);
+                }
             }
         };
-        this.unappliedAcks = new LinkedBlockingQueue<>();
-        this.assignedPartitions = new ArrayList<>();
     }
 
     /**
@@ -245,11 +258,22 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * called just once after construction and before calling {@link #start()}.
      */
     public void subscribe(String topic) {
+        subscribe(topic, null);
+    }
+
+    /**
+     * Subscribes to the given topic by this consumer and registers given rebalance listener.
+     * Partitions will be assigned dynamically. Either this method or {@link #assign(String, List)} should be
+     * called just once after construction and before calling {@link #start()}.
+     */
+    public void subscribe(String topic, ConsumerRebalanceListener rebalanceListener) {
         checkState(this.topic == null, "It is already subscribed/assigned. You should call either "
                 + "subscribe() or assign() just once.");
+        checkState(this.rebalanceListener == null, "Listener is previously registered.");
         checkArgument(topic != null && !topic.isEmpty());
 
-        kafkaConsumer.subscribe(Collections.singleton(topic), rebalanceListener);
+        this.rebalanceListener = rebalanceListener;
+        kafkaConsumer.subscribe(Collections.singleton(topic), internalRebalanceListener);
         this.topic = topic;
         thread.setName("Kafka reader of " + topic);
     }
@@ -308,9 +332,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * Registers metrics and starts JMX reporter.
      */
     private void initMetrics() {
-        metricRegistry.register("UnappliedAcks", (Gauge) unappliedAcks::size);
+        metricRegistry.register("UnappliedAcks", (Gauge<Integer>) unappliedAcks::size);
         metricRegistry.register("QueuedRecordsFullness",
-                                (Gauge) () -> 100 * queuedRecords.size() / maxQueuedRecords);
+                                (Gauge<Double>) () -> 100.0 * queuedRecords.size() / maxQueuedRecords);
 
         // Exposing metrics by JMX
         reporter = JmxReporter.forRegistry(metricRegistry)
