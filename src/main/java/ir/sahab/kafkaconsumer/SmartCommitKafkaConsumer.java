@@ -393,8 +393,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     @Override
     public void close() {
         stop = true;
-        thread.interrupt();
         kafkaConsumer.wakeup();
+        thread.interrupt();
         try {
             thread.join();
         } catch (InterruptedException e) {
@@ -416,8 +416,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
             // Continuously both handle acks and poll for new records.
             while (!stop) {
-                handleAcks();
                 try {
+                    handleAcks();
                     lastPollTime = System.currentTimeMillis();
                     putRecordsInQueue(kafkaConsumer.poll(POLL_TIMEOUT_MILLIS));
                 } catch (WakeupException | InterruptException | InterruptedException e) {
