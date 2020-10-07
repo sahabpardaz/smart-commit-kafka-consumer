@@ -7,7 +7,7 @@ is guaranteed.
 So it keeps track of all offsets until receiving theirs acks  but it is hidden
 from the client. In fact, offsets of each partition are tracked in several
 pages, each of them responsible for a specific range of offsets.
-When all offsets of some consecutive pages are acked, the last offset of the fully acked page will be committed automatically.
+When all offsets of some consecutive pages are acked, the last offset of the last fully acked page will be committed automatically.
 
 ## Sample Usage
 ```java
