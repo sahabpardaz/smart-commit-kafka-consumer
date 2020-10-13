@@ -1,12 +1,13 @@
 package ir.sahab.kafkaconsumer;
 
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
+import static org.apache.kafka.clients.CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG;
 
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.MetricRegistry;
@@ -148,6 +149,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
     private String topic;
     private volatile boolean stop = false;
+    private long requestTimeOutMillis = 30_000; // 5 minutes
 
     /**
      * Constructs a smart Kafka consumer using default values for page size, max open pages and
@@ -201,6 +203,10 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
             maxPollIntervalMillis = Integer.parseInt(kafkaConsumerProperties.getProperty(MAX_POLL_INTERVAL_MS_CONFIG));
         } else {
             kafkaConsumerProperties.put(MAX_POLL_INTERVAL_MS_CONFIG, maxPollIntervalMillis);
+        }
+
+        if (kafkaConsumerProperties.contains(REQUEST_TIMEOUT_MS_CONFIG)) {
+            requestTimeOutMillis = Long.parseLong(kafkaConsumerProperties.getProperty(REQUEST_TIMEOUT_MS_CONFIG));
         }
 
         // Init objects regarding to consuming from Kafka.
@@ -316,7 +322,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 if (!topics.containsKey(topic)) {
                     throw new AssertionError("Subscribed topic does not exist in Kafka server.");
                 }
-            }).get(60, SECONDS);
+            }).get(requestTimeOutMillis * 2, MILLISECONDS);
         } catch (ExecutionException | TimeoutException e) {
             // Wakeup consumer because listTopics will block kafkaConsumer if it is unable to connect to kafka server.
             kafkaConsumer.wakeup();
