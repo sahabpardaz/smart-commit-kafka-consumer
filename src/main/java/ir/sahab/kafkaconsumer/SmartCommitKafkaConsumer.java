@@ -14,6 +14,7 @@ import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -74,7 +75,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     private static final Logger logger = LoggerFactory.getLogger(SmartCommitKafkaConsumer.class);
     private static final LogThrottle logThrottle = new LogThrottle(logger);
 
-    private static final int POLL_TIMEOUT_MILLIS = 10;
+    private static final Duration POLL_TIMEOUT_MILLIS = Duration.ofMillis(10);
 
     /**
      * The maximum delay between invocations of poll() when using consumer group management. This places an upper bound
@@ -311,7 +312,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             executor.submit(() -> {
-                kafkaConsumer.poll(0);
+                kafkaConsumer.poll(Duration.ZERO);
                 Map<String, List<PartitionInfo>> topics = kafkaConsumer.listTopics();
                 if (!topics.containsKey(topic)) {
                     throw new AssertionError("Subscribed topic does not exist in Kafka server.");
@@ -496,7 +497,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 rebalanceHappened = false;
 
                 lastPollTime = System.currentTimeMillis();
-                kafkaConsumer.poll(0);
+                kafkaConsumer.poll(Duration.ZERO);
                 // Maybe partitions rebalanced so use force resume to assure that consumer can poll records from all
                 // partitions which is assigned to it.
                 forceResume(copyOfAssignedPartitions);
