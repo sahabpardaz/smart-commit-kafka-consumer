@@ -12,10 +12,14 @@ import java.util.concurrent.ExecutionException;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaServerStartable;
 import org.apache.commons.io.FileUtils;
-import org.apache.kafka.clients.admin.*;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.CreateTopicsResult;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import static java.util.Collections.*;
+
+import static java.util.Collections.singleton;
+import static java.util.Collections.singletonMap;
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
 
 /**
@@ -75,7 +79,7 @@ public class EmbeddedKafkaServer implements Closeable {
             CreateTopicsResult result = kafkaAdmin.createTopics(singleton(topic));
             result.all().get();
         } catch (InterruptedException | ExecutionException e) {
-            throw new IllegalStateException("Can't create topic", e);
+            throw new AssertionError("Can't create topic", e);
         }
     }
 
