@@ -303,7 +303,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         logger.info("Starting smart commit kafka consumer of {} topic...", topic);
         initMetrics();
 
-        // Ensure connection to Kafka server ca be created successfully.
+        // Ensure connection to Kafka server can be created successfully.
         kafkaConsumer.poll(Duration.ZERO);
         Map<String, List<PartitionInfo>> topics = kafkaConsumer.listTopics();
         if (!topics.containsKey(topic)) {
