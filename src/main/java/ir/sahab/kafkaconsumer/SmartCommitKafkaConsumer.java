@@ -1,7 +1,6 @@
 package ir.sahab.kafkaconsumer;
 
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG;
@@ -14,6 +13,7 @@ import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -24,11 +24,7 @@ import java.util.OptionalLong;
 import java.util.Properties;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeoutException;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -74,7 +70,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     private static final Logger logger = LoggerFactory.getLogger(SmartCommitKafkaConsumer.class);
     private static final LogThrottle logThrottle = new LogThrottle(logger);
 
-    private static final int POLL_TIMEOUT_MILLIS = 10;
+    private static final Duration POLL_TIMEOUT_MILLIS = Duration.ofMillis(10);
 
     /**
      * The maximum delay between invocations of poll() when using consumer group management. This places an upper bound
@@ -307,24 +303,12 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
         logger.info("Starting smart commit kafka consumer of {} topic...", topic);
         initMetrics();
 
-        // Ensure connection to Kafka topic.
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            executor.submit(() -> {
-                kafkaConsumer.poll(0);
-                Map<String, List<PartitionInfo>> topics = kafkaConsumer.listTopics();
-                if (!topics.containsKey(topic)) {
-                    throw new AssertionError("Subscribed topic does not exist in Kafka server.");
-                }
-            }).get(60, SECONDS);
-        } catch (ExecutionException | TimeoutException e) {
-            // Wakeup consumer because listTopics will block kafkaConsumer if it is unable to connect to kafka server.
-            kafkaConsumer.wakeup();
-            throw new IOException("Failed connecting to Kafka.", e);
-        } finally {
-            executor.shutdown();
+        // Ensure connection to Kafka server can be created successfully.
+        kafkaConsumer.poll(Duration.ZERO);
+        Map<String, List<PartitionInfo>> topics = kafkaConsumer.listTopics();
+        if (!topics.containsKey(topic)) {
+            throw new AssertionError("Subscribed topic does not exist in Kafka server.");
         }
-
         thread.start();
     }
 
@@ -496,7 +480,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 rebalanceHappened = false;
 
                 lastPollTime = System.currentTimeMillis();
-                kafkaConsumer.poll(0);
+                kafkaConsumer.poll(Duration.ZERO);
                 // Maybe partitions rebalanced so use force resume to assure that consumer can poll records from all
                 // partitions which is assigned to it.
                 forceResume(copyOfAssignedPartitions);

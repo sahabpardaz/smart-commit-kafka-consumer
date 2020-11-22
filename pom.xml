@@ -6,7 +6,7 @@
 
   <groupId>ir.sahab</groupId>
   <artifactId>smart-commit-kafka-consumer</artifactId>
-  <version>1.4.1</version>
+  <version>1.4.1-kafka2</version>
 
   <repositories>
     <repository>
@@ -16,19 +16,13 @@
   </repositories>
 
   <properties>
-      <kafka.version>1.1.1</kafka.version>
+      <kafka.version>2.6.0</kafka.version>
   </properties>
 
   <dependencies>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-      <version>1.7.25</version>
-    </dependency>
-
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-log4j12</artifactId>
       <version>1.7.25</version>
     </dependency>
 
@@ -43,25 +37,20 @@
       <groupId>org.apache.kafka</groupId>
       <artifactId>kafka-clients</artifactId>
       <version>${kafka.version}</version>
-      <exclusions>
-        <exclusion>
-          <artifactId>slf4j-log4j12</artifactId>
-          <groupId>org.slf4j</groupId>
-        </exclusion>
-      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-log4j12</artifactId>
+      <version>1.7.25</version>
+      <scope>test</scope>
     </dependency>
 
     <dependency>
       <groupId>org.apache.kafka</groupId>
-      <artifactId>kafka_2.12</artifactId>
+      <artifactId>kafka_2.13</artifactId>
       <version>${kafka.version}</version>
       <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <artifactId>slf4j-log4j12</artifactId>
-          <groupId>org.slf4j</groupId>
-        </exclusion>
-      </exclusions>
       <optional>true</optional>
     </dependency>
 
@@ -69,6 +58,7 @@
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
       <version>2.4</version>
+      <scope>test</scope>
     </dependency>
 
     <dependency>

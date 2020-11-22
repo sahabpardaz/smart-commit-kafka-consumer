@@ -10,6 +10,7 @@ import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -124,6 +125,9 @@ public class SmartCommitKafkaConsumerTest {
         Properties props = new Properties();
         props.put(GROUP_ID_CONFIG, groupId);
         props.put(BOOTSTRAP_SERVERS_CONFIG, kafkaServer.getBrokerAddress());
+        // If first consumer commits only two partitions, second consumer will reset to latest offset
+        // for third partition.
+        props.put(AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
         props.put(VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
 
@@ -132,7 +136,7 @@ public class SmartCommitKafkaConsumerTest {
 
             ConsumerRecords<byte[], byte[]> records;
             do {
-                records = secondConsumer.poll(10000);
+                records = secondConsumer.poll(Duration.ofMillis(10000));
                 for (ConsumerRecord<byte[], byte[]> record : records) {
                     minPolledBySecondConsumer.merge(record.partition(), record.offset(), Math::min);
                     maxPolledBySecondConsumer.merge(record.partition(), record.offset(), Math::max);
@@ -154,7 +158,7 @@ public class SmartCommitKafkaConsumerTest {
                 assertEquals(expectedInitialOffsetToPoll, minOffsetPolled.longValue());
                 numRecordsReadTotally += maxPolledBySecondConsumer.get(i) + 1;
             } else {
-                numRecordsReadTotally += expectedInitialOffsetToPoll + 1;
+                numRecordsReadTotally += expectedInitialOffsetToPoll;
             }
         }
         assertEquals(numRecordsToProduce, numRecordsReadTotally);
