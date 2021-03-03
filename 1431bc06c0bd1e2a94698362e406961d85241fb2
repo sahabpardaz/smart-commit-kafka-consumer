@@ -22,6 +22,121 @@
       },
       "revId": "1431bc06c0bd1e2a94698362e406961d85241fb2",
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "1425ba3a_28c927f3",
+        "filename": "src/main/java/ir/sahab/kafkaconsumer/SmartCommitKafkaConsumer.java",
+        "patchSetId": 1
+      },
+      "lineNbr": 105,
+      "author": {
+        "id": 1018969
+      },
+      "writtenOn": "2021-03-03T15:35:30Z",
+      "side": 1,
+      "message": "Add to its comment:\n\nAlthough the offset tracker is not thread-safe but we are not worried because all interactions to offset tracker is from the same thread that we poll from: we handle the acks in that thread and the rebalance callbacks are guaranteed by Kafka to be called as a part of poll() calls.",
+      "range": {
+        "startLine": 105,
+        "startChar": 70,
+        "endLine": 105,
+        "endChar": 71
+      },
+      "revId": "1431bc06c0bd1e2a94698362e406961d85241fb2",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "2c4401ac_aa6467f6",
+        "filename": "src/test/java/ir/sahab/kafkaconsumer/OffsetTrackerTest.java",
+        "patchSetId": 1
+      },
+      "lineNbr": 141,
+      "author": {
+        "id": 1018969
+      },
+      "writtenOn": "2021-03-03T15:35:30Z",
+      "side": 1,
+      "message": "2",
+      "range": {
+        "startLine": 141,
+        "startChar": 48,
+        "endLine": 141,
+        "endChar": 49
+      },
+      "revId": "1431bc06c0bd1e2a94698362e406961d85241fb2",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "c649de05_2fc7a008",
+        "filename": "src/test/java/ir/sahab/kafkaconsumer/OffsetTrackerTest.java",
+        "patchSetId": 1
+      },
+      "lineNbr": 157,
+      "author": {
+        "id": 1018969
+      },
+      "writtenOn": "2021-03-03T15:35:30Z",
+      "side": 1,
+      "message": "remove",
+      "range": {
+        "startLine": 157,
+        "startChar": 17,
+        "endLine": 157,
+        "endChar": 22
+      },
+      "revId": "1431bc06c0bd1e2a94698362e406961d85241fb2",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "a793e920_357f5e58",
+        "filename": "src/test/java/ir/sahab/kafkaconsumer/OffsetTrackerTest.java",
+        "patchSetId": 1
+      },
+      "lineNbr": 162,
+      "author": {
+        "id": 1018969
+      },
+      "writtenOn": "2021-03-03T15:35:30Z",
+      "side": 1,
+      "message": "remove",
+      "range": {
+        "startLine": 162,
+        "startChar": 65,
+        "endLine": 162,
+        "endChar": 70
+      },
+      "revId": "1431bc06c0bd1e2a94698362e406961d85241fb2",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "23b95e38_66fe0b75",
+        "filename": "src/test/java/ir/sahab/kafkaconsumer/OffsetTrackerTest.java",
+        "patchSetId": 1
+      },
+      "lineNbr": 188,
+      "author": {
+        "id": 1018969
+      },
+      "writtenOn": "2021-03-03T15:35:30Z",
+      "side": 1,
+      "message": "remove",
+      "range": {
+        "startLine": 188,
+        "startChar": 19,
+        "endLine": 188,
+        "endChar": 24
+      },
+      "revId": "1431bc06c0bd1e2a94698362e406961d85241fb2",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     }
   ]
 }
