@@ -77,22 +77,13 @@ public class SmartCommitKafkaConsumerTest {
 
         // Start first consumer: read/ack several records (not all of them).
         Map<Integer /*partition*/, Long /*offset*/> maxAckedByFirstConsumer = new HashMap<>();
-        Properties consumerProperties = new Properties();
-        String groupId = "custom-group";
-        consumerProperties.put(GROUP_ID_CONFIG, groupId);
-        consumerProperties.put(AUTO_OFFSET_RESET_CONFIG, "earliest");
-        consumerProperties.put(BOOTSTRAP_SERVERS_CONFIG, kafkaServer.getBrokerAddress());
-        consumerProperties.put(KEY_DESERIALIZER_CLASS_CONFIG,
-                ByteArrayDeserializer.class.getName());
-        consumerProperties.put(VALUE_DESERIALIZER_CLASS_CONFIG,
-                ByteArrayDeserializer.class.getName());
 
         int pageSize = 10;
         int maxOpenPages = 1000;
         int numRecordsToAck = 763;
 
         try (SmartCommitKafkaConsumer<byte[], byte[]> kafkaConsumer =
-                new SmartCommitKafkaConsumer<>(consumerProperties, pageSize, maxOpenPages,
+                new SmartCommitKafkaConsumer<>(getConsumerProperties(), pageSize, maxOpenPages,
                         2 * numRecordsToProduce)) {
 
             kafkaConsumer.subscribe(TOPIC_NAME);
@@ -122,16 +113,8 @@ public class SmartCommitKafkaConsumerTest {
         // Start another Kafka consumer to read the remaining records.
         Map<Integer /*partition*/, Long /*offset*/> minPolledBySecondConsumer = new HashMap<>();
         Map<Integer /*partition*/, Long /*offset*/> maxPolledBySecondConsumer = new HashMap<>();
-        Properties props = new Properties();
-        props.put(GROUP_ID_CONFIG, groupId);
-        props.put(BOOTSTRAP_SERVERS_CONFIG, kafkaServer.getBrokerAddress());
-        // If first consumer commits only two partitions, second consumer will reset to latest offset
-        // for third partition.
-        props.put(AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-        props.put(VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
 
-        try (KafkaConsumer<byte[], byte[]> secondConsumer = new KafkaConsumer<>(props)) {
+        try (KafkaConsumer<byte[], byte[]> secondConsumer = new KafkaConsumer<>(getConsumerProperties())) {
             secondConsumer.subscribe(Collections.singleton(TOPIC_NAME));
 
             ConsumerRecords<byte[], byte[]> records;
@@ -162,5 +145,17 @@ public class SmartCommitKafkaConsumerTest {
             }
         }
         assertEquals(numRecordsToProduce, numRecordsReadTotally);
+    }
+
+    private Properties getConsumerProperties() {
+        Properties props = new Properties();
+        props.put(GROUP_ID_CONFIG, "custom-group");
+        props.put(BOOTSTRAP_SERVERS_CONFIG, kafkaServer.getBrokerAddress());
+        // If first consumer commits only two partitions, second consumer will reset to latest offset
+        // for third partition by default so we changed that to earliest.
+        props.put(AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        props.put(VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        return props;
     }
 }
