@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "e64cf0d9_cd3d1c1f",
+        "filename": "src/main/java/ir/sahab/kafkaconsumer/OffsetTracker.java",
+        "patchSetId": 1
+      },
+      "lineNbr": 46,
+      "author": {
+        "id": 1018969
+      },
+      "writtenOn": "2021-03-03T13:45:26Z",
+      "side": 1,
+      "message": "why final?",
+      "range": {
+        "startLine": 46,
+        "startChar": 12,
+        "endLine": 46,
+        "endChar": 17
+      },
+      "revId": "1431bc06c0bd1e2a94698362e406961d85241fb2",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
