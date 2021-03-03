@@ -1,6 +1,7 @@
 package ir.sahab.kafkaconsumer;
 
 import java.util.OptionalLong;
+import java.util.stream.IntStream;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -130,65 +131,62 @@ public class OffsetTrackerTest {
     }
 
     @Test
-    public void testReset() {
+    public void testRemove() {
         int pageSize = 2;
         int maxOpenPagesPerPartition = 5;
         OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
-        final int partition = 0;
+        final int partition0 = 0;
+        final int partition1 = 1;
 
-        // These tracks make two pages open.
-        offsetTracker.track(partition, 0);
-        offsetTracker.track(partition, 1);
-        offsetTracker.track(partition, 2);
-        offsetTracker.track(partition, 3);
+        // These tracks make two pages open [0..3] for both partitions.
+        IntStream.range(0,4).forEach(i -> offsetTracker.track(partition0, i));
+        IntStream.range(0,4).forEach(i -> offsetTracker.track(partition1, i));
 
-        // These acks make the pages partially completed.
-        offsetTracker.ack(partition, 0);
-        offsetTracker.ack(partition, 2);
+        // These acks make the pages partially completed for both partitions.
+        offsetTracker.ack(partition0, 0);
+        offsetTracker.ack(partition0, 2);
+        offsetTracker.ack(partition1, 0);
+        offsetTracker.ack(partition1, 2);
 
-        // Reset makes our history clear.
-        offsetTracker.reset();
+        // Clear the history of partition 0.
+        offsetTracker.remove(partition0);
 
-        // After reset, we do not get the previous offsets. The world is changed!
+        // History of partition 1 must be unchanged. Ack of offset 1 must makes a commit.
+        Assert.assertEquals(2, offsetTracker.ack(partition1, 1).getAsLong());
+
+        // After remove, we do not get the previous offsets.
         // These calls opens a new page with another range of offsets: [210..211]
-        offsetTracker.track(partition, 210);
-        offsetTracker.track(partition, 211);
+        offsetTracker.track(partition0, 210);
+        offsetTracker.track(partition0, 211);
 
-        // It may be one ack which is received with delay (after reset).
+        // It may be one ack which is received with delay (after remove).
         // Offset tracker is not sensitive to these kind of acks.
-        offsetTracker.ack(partition, 1);
+        offsetTracker.ack(partition0, 1);
 
-        // We do not need to get acks about the pages which is opened before reset.
-        // Getting acks of the new opened pages (after reset), should result in an offset to commit.
-        OptionalLong offsetToCommit;
-        offsetToCommit = offsetTracker.ack(partition, 210);
-        Assert.assertFalse(offsetToCommit.isPresent());
+        // We do not need to get acks about the pages which is opened before remove.
+        // Getting acks of the new opened pages (after remove), should result in an offset to commit.
+        Assert.assertFalse(offsetTracker.ack(partition0, 210).isPresent());
+        Assert.assertEquals(212, offsetTracker.ack(partition0, 211).getAsLong());
 
-        offsetToCommit = offsetTracker.ack(partition, 211);
-        Assert.assertTrue(offsetToCommit.isPresent());
-        Assert.assertEquals(212, offsetToCommit.getAsLong());
+        // History of partition 1 must be still unchanged. Ack of offset 3 must makes a commit.
+        Assert.assertEquals(4, offsetTracker.ack(partition1, 3).getAsLong());
     }
 
     @Test
-    public void testResetWhenSomeBufferedRecordsFromPreviousSession() {
+    public void testRemoveWhenSomeBufferedRecordsFromPreviousSession() {
         int pageSize = 3;
         int maxOpenPagesPerPartition = 5;
         OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
         final int partition = 0;
 
-        // These tracks make two pages open.
-        offsetTracker.track(partition, 0);  // From first session
-        offsetTracker.track(partition, 1);  // From first session
-        offsetTracker.track(partition, 2);  // From first session
-        offsetTracker.track(partition, 3);  // From first session
+        // These tracks make two pages open [0..3].
+        IntStream.range(0,4).forEach(i -> offsetTracker.track(partition, i)); // From first session
 
-        // These acks make the pages partially completed.
-        offsetTracker.ack(partition, 0);  // For first session
-        offsetTracker.ack(partition, 1);  // For first session
-        offsetTracker.ack(partition, 2);  // For first session
+        // These acks make the pages partially completed [0..2].
+        IntStream.range(0,3).forEach(i -> offsetTracker.track(partition, i)); // For first session
 
-        // We will reset offset tracker to simulate partitions re-balance.
-        offsetTracker.reset();
+        // We will remove offset tracker to simulate partitions re-balance.
+        offsetTracker.remove(partition);
 
         // We are assuming that we have a record buffered from previous session that we get its
         // track here. It opens a new partial page.
@@ -198,13 +196,7 @@ public class OffsetTrackerTest {
         // last committed offset of the first session.
         offsetTracker.track(partition, 3);  // Now we have this offset twice in pending records.
         offsetTracker.track(partition, 4);  // Now we have this offset twice in pending records.
-        offsetTracker.track(partition, 5);
-        offsetTracker.track(partition, 6);
-        offsetTracker.track(partition, 7);
-        offsetTracker.track(partition, 8);
-        offsetTracker.track(partition, 9);
-        offsetTracker.track(partition, 10);
-        offsetTracker.track(partition, 11);
+        IntStream.range(5,12).forEach(i -> offsetTracker.track(partition, i)); // [5..11]
 
         OptionalLong offsetToCommit;
         offsetToCommit = offsetTracker.ack(partition, 3);  // Ack #1 for offset 3
