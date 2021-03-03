@@ -12,16 +12,17 @@ import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.jmx.JmxReporter;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -136,7 +137,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * List of partitions assigned to consumer after first connection to Kafka or rebalancing. Assigned partitions
      * cached and will be used later.
      */
-    private final List<TopicPartition> assignedPartitions;
+    private final Set<TopicPartition> assignedPartitions;
 
 
     private final MetricRegistry metricRegistry = new MetricRegistry();
@@ -218,13 +219,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
             }
         };
         this.unappliedAcks = new LinkedBlockingQueue<>();
-        this.assignedPartitions = new ArrayList<>();
+        this.assignedPartitions = new HashSet<>();
         this.internalRebalanceListener = new ConsumerRebalanceListener() {
             @Override
             public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-                if (!partitions.isEmpty()) {
-                    logger.warn("Kafka consumer previous assignment revoked: {}", partitions);
-                }
+                logger.warn("Kafka consumer partitions revoked: {}", partitions);
+                assignedPartitions.removeAll(partitions);
+                partitions.stream().map(TopicPartition::partition).forEach(offsetTracker::remove);
 
                 // Call user provided listener
                 if (rebalanceListener != null) {
@@ -235,14 +236,24 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
             @Override
             public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
                 // Update cached partitions
-                assignedPartitions.clear();
                 assignedPartitions.addAll(partitions);
                 logger.info("Kafka consumer partitions assigned: {}", partitions);
-                offsetTracker.reset();
 
                 // Call user provided listener
                 if (rebalanceListener != null) {
                     rebalanceListener.onPartitionsAssigned(partitions);
+                }
+            }
+
+            @Override
+            public void onPartitionsLost(Collection<TopicPartition> partitions) {
+                logger.warn("Kafka consumer partitions lost: {}", partitions);
+                assignedPartitions.removeAll(partitions);
+                partitions.stream().map(TopicPartition::partition).forEach(offsetTracker::remove);
+
+                // Call user provided listener
+                if (rebalanceListener != null) {
+                    rebalanceListener.onPartitionsLost(partitions);
                 }
             }
         };
@@ -295,9 +306,8 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     /**
      * First ensures connectivity to the Kafka topic and then starts polling from the Kafka topic
      * in a background thread. Then the polled records can be accessed via {@link #poll()}.
-     * @throws IOException if can not establish connection to the Kafka topic.
      */
-    public void start() throws InterruptedException, IOException {
+    public void start() {
         checkState(topic != null, "You should first call either subscribe() or assign().");
         checkState(!thread.isAlive(), "start() is called but Kafka consumer is already started.");
         logger.info("Starting smart commit kafka consumer of {} topic...", topic);
@@ -473,7 +483,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
         boolean rebalanceHappened = true;
         while (rebalanceHappened) {
-            List<TopicPartition> copyOfAssignedPartitions = new ArrayList<>(assignedPartitions);
+            Set<TopicPartition> copyOfAssignedPartitions = new HashSet<>(assignedPartitions);
             try {
                 // Stop receiving records from all of assigned partitions to Kafka consumer.
                 kafkaConsumer.pause(copyOfAssignedPartitions);
@@ -498,7 +508,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      * it will be ignored.
      * @param topicPartitions list of partitions
      */
-    private void forceResume(List<TopicPartition> topicPartitions) {
+    private void forceResume(Set<TopicPartition> topicPartitions) {
         for (TopicPartition topicPartition : topicPartitions) {
             try {
                 kafkaConsumer.resume(Collections.singletonList(topicPartition));

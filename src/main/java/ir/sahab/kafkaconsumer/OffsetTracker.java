@@ -36,7 +36,6 @@ import org.slf4j.LoggerFactory;
  * is safe to commit, you get the offset as return value. Note that this class is not thread safe
  * and you should do all track and ack calls from a single thread, which can be your polling thread.
  * For this reason, you can keep delivered records in a queue to drain them from poll loop.
- * The only method which is safe to call from other threads is {@link #reset()}.
  */
 public class OffsetTracker {
     private static final Logger logger = LoggerFactory.getLogger(OffsetTracker.class);
@@ -44,7 +43,7 @@ public class OffsetTracker {
 
     private final int pageSize;
     private final int maxOpenPagesPerPartition;
-    private volatile Map<Integer /*partition*/, PartitionTracker> partitionTrackers;
+    private final Map<Integer /*partition*/, PartitionTracker> partitionTrackers;
 
     /**
      * Constructs a new offset tracker with the specified page size and maximum number of pages.
@@ -64,12 +63,10 @@ public class OffsetTracker {
     }
 
     /**
-     * Clears all previous tracks. It is applicable when Kafka consumer is closed or on re-balance.
-     * It is safe to call it from a separate thread then the one you call {@link #ack(int, long)}
-     * and {@link #track(int, long)} from.
+     * Clears tracks of a specified partition. It is applicable when Kafka consumer is closed or on re-balance.
      */
-    public void reset() {
-        partitionTrackers = new HashMap<>();
+    public void remove(Integer partition) {
+        partitionTrackers.remove(partition);
     }
 
     /**
@@ -209,7 +206,7 @@ public class OffsetTracker {
     private class PageTracker {
         private final int effectiveSize;
         private final int margin;
-        private BitSet bits;
+        private final BitSet bits;
         private int numConsecutive;
 
         /**
@@ -224,10 +221,6 @@ public class OffsetTracker {
             this.margin = margin;
             this.numConsecutive = 0;
             bits = new BitSet(effectiveSize);
-        }
-
-        int getMargin() {
-            return margin;
         }
 
         /**
