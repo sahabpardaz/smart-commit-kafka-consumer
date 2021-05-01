@@ -101,6 +101,81 @@ public class OffsetTrackerTest {
     }
 
     @Test
+    public void testPagesWithGap() {
+        final int pageSize = 3;
+        final int maxOpenPagesPerPartition = 2;
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final int partition = 0;
+
+        // Track calls which opens the first page: [0..2]
+        offsetTracker.track(partition, 1);
+
+        // Track calls which opens the second page: [3..5]
+        offsetTracker.track(partition, 3);
+
+
+        OptionalLong offsetToCommit;
+        offsetToCommit = offsetTracker.ack(partition, 1);
+        Assert.assertTrue(offsetToCommit.isPresent());
+        Assert.assertEquals(3, offsetToCommit.getAsLong());
+
+        offsetToCommit = offsetTracker.ack(partition, 3);
+        Assert.assertFalse(offsetToCommit.isPresent());
+    }
+
+    @Test
+    public void testGapMiddleOfPage() {
+        final int pageSize = 3;
+        final int maxOpenPagesPerPartition = 2;
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final int partition = 0;
+
+        // Track calls which opens the first page: [0..2]
+        offsetTracker.track(partition, 0);
+        offsetTracker.track(partition, 2);
+
+        OptionalLong offsetToCommit;
+        offsetToCommit = offsetTracker.ack(partition, 0);
+        Assert.assertFalse(offsetToCommit.isPresent());
+
+        offsetToCommit = offsetTracker.ack(partition, 2);
+        Assert.assertTrue(offsetToCommit.isPresent());
+        Assert.assertEquals(3, offsetToCommit.getAsLong());
+    }
+
+    @Test
+    public void testPagesWithGapAfterAllAcks() {
+        final int pageSize = 3;
+        final int maxOpenPagesPerPartition = 2;
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final int partition = 0;
+
+        // Track calls which opens the first page: [0..2]
+        offsetTracker.track(partition, 0);
+        offsetTracker.track(partition, 1);
+
+        OptionalLong offsetToCommit;
+        offsetToCommit = offsetTracker.ack(partition, 0);
+        Assert.assertFalse(offsetToCommit.isPresent());
+        offsetToCommit = offsetTracker.ack(partition, 1);
+        Assert.assertFalse(offsetToCommit.isPresent());
+
+        // Track calls which opens the second page: [2..3]
+        offsetTracker.track(partition, 3);
+        offsetTracker.track(partition, 4);
+        offsetTracker.track(partition, 5);
+
+        offsetToCommit = offsetTracker.ack(partition, 3);
+        Assert.assertFalse(offsetToCommit.isPresent());
+        offsetToCommit = offsetTracker.ack(partition, 4);
+        Assert.assertFalse(offsetToCommit.isPresent());
+
+        offsetToCommit = offsetTracker.ack(partition, 5);
+        Assert.assertTrue(offsetToCommit.isPresent());
+        Assert.assertEquals(6, offsetToCommit.getAsLong());
+    }
+
+    @Test
     public void testPartitionFull() {
         int pageSize = 2;
         int maxOpenPagesPerPartition = 2;
