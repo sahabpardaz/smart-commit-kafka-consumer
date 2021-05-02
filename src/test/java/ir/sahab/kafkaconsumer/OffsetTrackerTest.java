@@ -110,7 +110,7 @@ public class OffsetTrackerTest {
         // Track calls which opens the first page: [0..2]
         offsetTracker.track(partition, 1);
 
-        // Track calls which opens the second page: [3..5]
+        // Track calls which opens the second page: [3..5] and makes a gap for the first page
         // Offset 1 completes the first page because the next offsets are inside the recognized gap.
         offsetTracker.track(partition, 3);
 
@@ -125,7 +125,7 @@ public class OffsetTrackerTest {
     }
 
     @Test
-    public void testGapMiddleOfPage() {
+    public void testPageWithMiddleGap() {
         final int pageSize = 3;
         final int maxOpenPagesPerPartition = 2;
         final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
