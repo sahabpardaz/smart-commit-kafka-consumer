@@ -258,7 +258,7 @@ public class OffsetTracker {
          */
         void track(int offset) {
             if (offset < margin) {
-                throw new IllegalStateException("Out of order offset detected. Consumer offsets should be tracked in order.");
+                return;
             }
             int effectiveOffset = offset - margin;
             // Set the bit representing this offset, indicating the offset is tracked but not acked yet
