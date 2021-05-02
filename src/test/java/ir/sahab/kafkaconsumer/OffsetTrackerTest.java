@@ -101,7 +101,7 @@ public class OffsetTrackerTest {
     }
 
     @Test
-    public void testPagesWithGap() {
+    public void testPageWithTailGap() {
         final int pageSize = 3;
         final int maxOpenPagesPerPartition = 2;
         final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
@@ -111,6 +111,7 @@ public class OffsetTrackerTest {
         offsetTracker.track(partition, 1);
 
         // Track calls which opens the second page: [3..5]
+        // Offset 1 completes the first page because the next offsets are inside the recognized gap.
         offsetTracker.track(partition, 3);
 
 
@@ -130,21 +131,23 @@ public class OffsetTrackerTest {
         final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
         final int partition = 0;
 
-        // Track calls which opens the first page: [0..2]
+        // The first call opens the first page: [0..2]. The missing track for offset=1, indicates a gap inside the page.
         offsetTracker.track(partition, 0);
         offsetTracker.track(partition, 2);
 
         OptionalLong offsetToCommit;
+        // Offset 0 does not complete the page
         offsetToCommit = offsetTracker.ack(partition, 0);
         Assert.assertFalse(offsetToCommit.isPresent());
 
+        // Offset 2 completes the page because the offset 1 is inside the recognized gap.
         offsetToCommit = offsetTracker.ack(partition, 2);
         Assert.assertTrue(offsetToCommit.isPresent());
         Assert.assertEquals(3, offsetToCommit.getAsLong());
     }
 
     @Test
-    public void testPagesWithGapAfterAllAcks() {
+    public void testPageWithGapWhenNoAckIsRemained() {
         final int pageSize = 3;
         final int maxOpenPagesPerPartition = 2;
         final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
@@ -154,22 +157,27 @@ public class OffsetTrackerTest {
         offsetTracker.track(partition, 0);
         offsetTracker.track(partition, 1);
 
+        // Ack all of the tracked offset so far
         OptionalLong offsetToCommit;
         offsetToCommit = offsetTracker.ack(partition, 0);
         Assert.assertFalse(offsetToCommit.isPresent());
         offsetToCommit = offsetTracker.ack(partition, 1);
         Assert.assertFalse(offsetToCommit.isPresent());
 
-        // Track calls which opens the second page: [2..3]
+        // Track calls which opens the second page: [3..5] and makes a gap for the first page.  Because we have no other
+        // ack for the first page, we can just get  the commit offset on completion of the next page.
         offsetTracker.track(partition, 3);
         offsetTracker.track(partition, 4);
         offsetTracker.track(partition, 5);
 
+        // Offset 3 , 4 does not make the second page complete.
         offsetToCommit = offsetTracker.ack(partition, 3);
         Assert.assertFalse(offsetToCommit.isPresent());
         offsetToCommit = offsetTracker.ack(partition, 4);
         Assert.assertFalse(offsetToCommit.isPresent());
 
+        // Offset 5 make the second page complete and because we have no remaining offset in the first page, we will get
+        // a commit offset here.
         offsetToCommit = offsetTracker.ack(partition, 5);
         Assert.assertTrue(offsetToCommit.isPresent());
         Assert.assertEquals(6, offsetToCommit.getAsLong());
