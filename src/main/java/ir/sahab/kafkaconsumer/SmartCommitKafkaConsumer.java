@@ -142,6 +142,11 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
      */
     private final List<TopicPartition> assignedPartitions;
 
+    /**
+     * Records polled from kafka. The communication between poll() and putRecordsInQueue() is using this field.
+     * rebalanceListener uses this field to signal rebalances to putRecordsInQueue().
+     */
+    private ConsumerRecords<K, V> polledRecords;
 
     private final MetricRegistry metricRegistry = new MetricRegistry();
     private JmxReporter reporter;
@@ -229,7 +234,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 if (!partitions.isEmpty()) {
                     logger.warn("Kafka consumer previous assignment revoked: {}", partitions);
                 }
-
+                // Discard all polled records in order to prevent out of order track() calls
+                // Setting this field to null signals putRecordsInQueue() to stop working on records
+                polledRecords = null;
                 // Call user provided listener
                 if (rebalanceListener != null) {
                     rebalanceListener.onPartitionsRevoked(partitions);
@@ -419,7 +426,9 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 try {
                     handleAcks();
                     lastPollTime = System.currentTimeMillis();
-                    putRecordsInQueue(kafkaConsumer.poll(POLL_TIMEOUT_MILLIS));
+                    // Pass records to putRecordsInQueue() indirectly using this field
+                    polledRecords = kafkaConsumer.poll(POLL_TIMEOUT_MILLIS);
+                    putRecordsInQueue();
                 } catch (WakeupException | InterruptException | InterruptedException e) {
                     if (!stop) {
                         throw new IllegalStateException("Unexpected interrupt.");
@@ -457,10 +466,13 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     }
 
     /**
-     * Puts the given records in queue. Meanwhile if the queue is full, it handles new received acks too.
+     * Puts the records in polledRecords into queue. Meanwhile if the queue is full, it handles new received acks too.
      */
-    private void putRecordsInQueue(ConsumerRecords<K, V> records) throws InterruptedException {
-        for (ConsumerRecord<K, V> record : records) {
+    private void putRecordsInQueue() throws InterruptedException {
+        if (polledRecords == null) {
+            return;
+        }
+        for (ConsumerRecord<K, V> record : this.polledRecords) {
             while (!offsetTracker.track(record.partition(), record.offset())) {
                 logThrottle.logger("tracker-full").error("Offset tracker for partition {} is full. "
                         + "Waiting... [You should never see this message. Consider increasing "
@@ -468,12 +480,20 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
                 handleAcks();
                 Thread.sleep(1);
                 keepConnectionAlive();
+                // if polledRecords became null it means we have a re-balance recently, so stop putting records in queues
+                if (polledRecords == null) {
+                    return;
+                }
             }
 
             while (!queuedRecords.offer(record)) {
                 handleAcks();
                 Thread.sleep(1);
                 keepConnectionAlive();
+                // if polledRecords became null it means we have a re-balance recently, so stop putting records in queues
+                if (polledRecords == null) {
+                    return;
+                }
             }
         }
     }
