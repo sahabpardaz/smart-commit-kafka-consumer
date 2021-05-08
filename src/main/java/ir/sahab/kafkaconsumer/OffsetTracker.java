@@ -258,6 +258,9 @@ public class OffsetTracker {
          */
         void track(int offset) {
             if (offset < margin) {
+                logThrottle.logger("not-tracked-region").warn("A track received but this offset is "
+                        + "not in the tracked region of the page. It is valid if it has been a "
+                        + "re-balance recently. offset: {}, page margin: {}", offset, margin);
                 return;
             }
             int effectiveOffset = offset - margin;
