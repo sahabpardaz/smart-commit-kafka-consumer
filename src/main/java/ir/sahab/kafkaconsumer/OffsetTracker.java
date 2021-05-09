@@ -1,16 +1,11 @@
 package ir.sahab.kafkaconsumer;
 
 import ir.sahab.logthrottle.LogThrottle;
-import java.util.BitSet;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.OptionalLong;
-import java.util.SortedSet;
-import java.util.TreeSet;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.*;
 
 /**
  * Tracker for Kafka consumed records which are delivered to their targets. Here is the problem
@@ -253,17 +248,19 @@ public class OffsetTracker {
         }
 
         /**
-         * Tracks an offset within this page. All the tracked offsets should be acked before this page can be completed.
+         * Tracks an offset within this page. All the tracked offsets should be acked before this page can be considered
+         * as completed.
+         *
          * @param offset pageOffset to track
          */
         void track(int offset) {
-            if (offset < margin) {
-                logThrottle.logger("not-tracked-region").warn("A track received but this offset is "
+            int effectiveOffset = offset - margin;
+            if (effectiveOffset < maxTrackedOffset) {
+                logThrottle.logger("not-tracked-region").warn("A backward offset is tracked but this offset is "
                         + "not in the tracked region of the page. It is valid if it has been a "
-                        + "re-balance recently. offset: {}, page margin: {}", offset, margin);
+                        + "re-balance recently. offset: {}, previous offset: {}", offset, margin + maxTrackedOffset);
                 return;
             }
-            int effectiveOffset = offset - margin;
             // Set the bit representing this offset, indicating the offset is tracked but not acked yet
             bits.set(effectiveOffset);
             if (effectiveOffset > this.maxTrackedOffset) {
