@@ -121,14 +121,35 @@ public class OffsetTracker {
 
         boolean track(long offset) {
             long pageIndex = offsetToPage(offset);
-            int margin = (int) (offset % pageSize);
-            if (pageTrackers.get(pageIndex) == null) {
+            int pageOffset = (int) (offset % pageSize);
+            PageTracker pageTracker = pageTrackers.get(pageIndex);
+            if (pageTracker == null) {
                 if (pageTrackers.size() >= maxOpenPagesPerPartition) {
                     return false;
                 }
-                pageTrackers.put(pageIndex, new PageTracker(pageSize, margin));
+                pageTracker = new PageTracker(pageSize, pageOffset);
+                pageTrackers.put(pageIndex, pageTracker);
+                // Since all the offsets will be tracked in order, we don't expect any more tracks for previous page.
+                markPageNoMoreTracks(pageIndex - 1);
             }
+            pageTracker.track(pageOffset);
             return true;
+        }
+
+        /**
+         * Marks a page with the noMoreTracks flag and handles necessary stuff if it gets completed.
+         */
+        private void markPageNoMoreTracks(long pageIndex) {
+            PageTracker pageTracker = pageTrackers.get(pageIndex);
+            if (pageTracker != null) {
+                pageTracker.markNoMoreTracks();
+                if (pageTracker.isCompleted()) {
+                    pageTrackers.remove(pageIndex);
+                    if (pageIndex > lastConsecutivePageIndex) {
+                        completedPages.add(pageIndex);
+                    }
+                }
+            }
         }
 
         /**
@@ -209,8 +230,9 @@ public class OffsetTracker {
     private class PageTracker {
         private final int effectiveSize;
         private final int margin;
-        private BitSet bits;
-        private int numConsecutive;
+        private final BitSet bits;
+        private int maxTrackedOffset;
+        private boolean noMoreTracks = false;
 
         /**
          * Constructs a page tracker.
@@ -222,12 +244,33 @@ public class OffsetTracker {
         PageTracker(int size, int margin) {
             this.effectiveSize = size - margin;
             this.margin = margin;
-            this.numConsecutive = 0;
+            this.maxTrackedOffset = 0;
             bits = new BitSet(effectiveSize);
         }
 
         int getMargin() {
             return margin;
+        }
+
+        /**
+         * Tracks an offset within this page. All the tracked offsets should be acked before this page can be considered
+         * as completed.
+         *
+         * @param offset pageOffset to track
+         */
+        void track(int offset) {
+            int effectiveOffset = offset - margin;
+            if (effectiveOffset < maxTrackedOffset) {
+                logThrottle.logger("not-tracked-region").warn("A backward offset is tracked but this offset is "
+                        + "not in the tracked region of the page. It is valid if it has been a "
+                        + "re-balance recently. offset: {}, previous offset: {}", offset, margin + maxTrackedOffset);
+                return;
+            }
+            // Set the bit representing this offset, indicating the offset is tracked but not acked yet
+            bits.set(effectiveOffset);
+            if (effectiveOffset > this.maxTrackedOffset) {
+                this.maxTrackedOffset = effectiveOffset;
+            }
         }
 
         /**
@@ -245,19 +288,28 @@ public class OffsetTracker {
                 return false;
             }
 
-            // Set the bit representing this offset.
+            // Clear the bit representing this offset.
             int effectiveOffset = offset - margin;
-            bits.set(effectiveOffset);
-
-            // Find number of consecutive offsets which are acked starting from margin.
-            if (effectiveOffset == numConsecutive) {
-                numConsecutive++;
-                while (bits.get(++effectiveOffset) && numConsecutive < this.effectiveSize)
-                    numConsecutive++;
-            }
+            bits.clear(effectiveOffset);
 
             // Return true if all expected offsets are acked.
-            return (numConsecutive == effectiveSize);
+            return isCompleted();
+        }
+
+        /**
+         * Calling this method indicates that this PageTracker should not expect any more new offset tracks and any
+         * missing untracked offset is a gap. We may have a gap in rare cases for example in the case when some records
+         * are gone due to retention.
+         */
+        void markNoMoreTracks() {
+            this.noMoreTracks = true;
+        }
+
+        /**
+         * @return true if all tracked offsets are acked and no more tracks are expected.
+         */
+        boolean isCompleted() {
+            return bits.isEmpty() && (maxTrackedOffset == effectiveSize - 1 || noMoreTracks);
         }
     }
 }
