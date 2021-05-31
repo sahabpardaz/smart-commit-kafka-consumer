@@ -2,6 +2,8 @@ package ir.sahab.kafkaconsumer;
 
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
+
+import com.codahale.metrics.MetricRegistry;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -11,7 +13,7 @@ public class OffsetTrackerTest {
     public void testTrackWithMargin() {
         final int pageSize = 5;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page starting from an initial margin: [233..234]
@@ -37,7 +39,7 @@ public class OffsetTrackerTest {
     public void testDisorderedAckOffsets() {
         final int pageSize = 4;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..3]
@@ -66,7 +68,7 @@ public class OffsetTrackerTest {
     public void testDisorderedAckPages() {
         final int pageSize = 2;
         final int maxOpenPagesPerPartition = 10;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..1]
@@ -105,7 +107,7 @@ public class OffsetTrackerTest {
     public void testPartitionFull() {
         int pageSize = 2;
         int maxOpenPagesPerPartition = 2;
-        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..1]
@@ -134,7 +136,7 @@ public class OffsetTrackerTest {
     public void testRemove() {
         int pageSize = 2;
         int maxOpenPagesPerPartition = 5;
-        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition0 = 0;
         final int partition1 = 1;
 
@@ -176,7 +178,7 @@ public class OffsetTrackerTest {
     public void testRemoveWhenSomeBufferedRecordsFromPreviousSession() {
         int pageSize = 3;
         int maxOpenPagesPerPartition = 5;
-        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // These tracks make two pages open [0..3].
