@@ -4,8 +4,8 @@ package ir.sahab.kafkaconsumer;
  * Holder of both partition and offset of a Kafka record.
  */
 public class PartitionOffset {
-    private int partition;
-    private long offset;
+    private final int partition;
+    private final long offset;
 
     public PartitionOffset(int partition, long offset) {
         this.partition = partition;
