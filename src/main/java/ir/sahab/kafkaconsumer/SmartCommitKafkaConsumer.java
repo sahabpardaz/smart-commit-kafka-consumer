@@ -10,6 +10,7 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZE
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.jmx.JmxReporter;
+import ir.sahab.dropwizardmetrics.LabelSupportedObjectNameFactory;
 import ir.sahab.logthrottle.LogThrottle;
 import java.io.Closeable;
 import java.time.Duration;
@@ -211,7 +212,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
         // Init objects regarding to offset track.
         this.offsetTracker = new OffsetTracker(
-                offsetTrackerPageSize, offsetTrackerMaxOpenPagesPerPartition);
+                offsetTrackerPageSize, offsetTrackerMaxOpenPagesPerPartition, metricRegistry);
         offsetCommitCallback = (offsets, e) -> {
             if (e != null) {
                 logThrottle.logger("commit-failed").warn(
@@ -335,6 +336,7 @@ public class SmartCommitKafkaConsumer<K, V> implements Closeable {
 
         // Exposing metrics by JMX
         reporter = JmxReporter.forRegistry(metricRegistry)
+                              .createsObjectNamesWith(new LabelSupportedObjectNameFactory())
                               .inDomain("smart-commit-kafka-consumer." + topic)
                               .build();
         reporter.start();
