@@ -89,12 +89,9 @@ public class OffsetTracker {
      *         of open pages is reached on this partition).
      */
     public boolean track(int partition, long offset) {
-        PartitionTracker partitionTracker = partitionTrackers.get(partition);
-        if (partitionTracker == null) {
-            partitionTracker = new PartitionTracker(partition, offset);
-            partitionTrackers.put(partition, partitionTracker);
-        }
-        return partitionTracker.track(offset);
+        return partitionTrackers
+                .computeIfAbsent(partition, key -> new PartitionTracker(partition, offset))
+                .track(offset);
     }
 
     /**
