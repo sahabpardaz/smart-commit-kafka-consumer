@@ -50,7 +50,7 @@
     <dependency>
       <groupId>com.github.sahabpardaz</groupId>
       <artifactId>label-supported-dropwizard-metrics</artifactId>
-      <version>1.0.3</version>
+      <version>1.0.3-dropwizard4</version>
     </dependency>
 
     <dependency>

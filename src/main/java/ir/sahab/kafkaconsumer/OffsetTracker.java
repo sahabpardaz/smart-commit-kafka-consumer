@@ -52,7 +52,7 @@ public class OffsetTracker {
     private final int pageSize;
     private final int maxOpenPagesPerPartition;
     private final MetricRegistry metricRegistry;
-    private volatile Map<Integer /*partition*/, PartitionTracker> partitionTrackers;
+    private final Map<Integer /*partition*/, PartitionTracker> partitionTrackers;
 
     /**
      * Constructs a new offset tracker with the specified page size and maximum number of pages.
@@ -78,7 +78,8 @@ public class OffsetTracker {
      * and {@link #track(int, long)} from.
      */
     public void reset() {
-        partitionTrackers = new HashMap<>();
+        partitionTrackers.clear();
+        metricRegistry.removeMatching((s, metric) -> s.startsWith(OPEN_PAGES) || s.startsWith(COMPLETED_PAGES));
     }
 
     /**
@@ -89,12 +90,9 @@ public class OffsetTracker {
      *         of open pages is reached on this partition).
      */
     public boolean track(int partition, long offset) {
-        PartitionTracker partitionTracker = partitionTrackers.get(partition);
-        if (partitionTracker == null) {
-            partitionTracker = new PartitionTracker(partition, offset);
-            partitionTrackers.put(partition, partitionTracker);
-        }
-        return partitionTracker.track(offset);
+        return partitionTrackers
+                .computeIfAbsent(partition, key -> new PartitionTracker(partition, offset))
+                .track(offset);
     }
 
     /**
