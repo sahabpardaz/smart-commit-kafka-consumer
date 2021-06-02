@@ -1,6 +1,8 @@
 package ir.sahab.kafkaconsumer;
 
 import java.util.OptionalLong;
+import java.util.stream.IntStream;
+import com.codahale.metrics.MetricRegistry;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -10,7 +12,7 @@ public class OffsetTrackerTest {
     public void testTrackWithMargin() {
         final int pageSize = 5;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page starting from an initial margin: [233..234]
@@ -36,7 +38,7 @@ public class OffsetTrackerTest {
     public void testDisorderedAckOffsets() {
         final int pageSize = 4;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..3]
@@ -65,7 +67,7 @@ public class OffsetTrackerTest {
     public void testDisorderedAckPages() {
         final int pageSize = 2;
         final int maxOpenPagesPerPartition = 10;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..1]
@@ -104,7 +106,7 @@ public class OffsetTrackerTest {
     public void testPageWithTailGap() {
         final int pageSize = 3;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..2]
@@ -128,7 +130,7 @@ public class OffsetTrackerTest {
     public void testPageWithMiddleGap() {
         final int pageSize = 3;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // The first call opens the first page: [0..2]. The missing track for offset=1, indicates a gap inside the page.
@@ -150,7 +152,7 @@ public class OffsetTrackerTest {
     public void testPageWithGapWhenNoAckIsRemained() {
         final int pageSize = 3;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..2]
@@ -187,7 +189,7 @@ public class OffsetTrackerTest {
     public void testPartitionFull() {
         int pageSize = 2;
         int maxOpenPagesPerPartition = 2;
-        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // Track calls which opens the first page: [0..1]
@@ -216,14 +218,11 @@ public class OffsetTrackerTest {
     public void testReset() {
         int pageSize = 2;
         int maxOpenPagesPerPartition = 5;
-        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
-        // These tracks make two pages open.
-        offsetTracker.track(partition, 0);
-        offsetTracker.track(partition, 1);
-        offsetTracker.track(partition, 2);
-        offsetTracker.track(partition, 3);
+        // These tracks make two pages open [0..3] for both partitions.
+        IntStream.range(0,4).forEach(i -> offsetTracker.track(partition, i));
 
         // These acks make the pages partially completed.
         offsetTracker.ack(partition, 0);
@@ -243,20 +242,15 @@ public class OffsetTrackerTest {
 
         // We do not need to get acks about the pages which is opened before reset.
         // Getting acks of the new opened pages (after reset), should result in an offset to commit.
-        OptionalLong offsetToCommit;
-        offsetToCommit = offsetTracker.ack(partition, 210);
-        Assert.assertFalse(offsetToCommit.isPresent());
-
-        offsetToCommit = offsetTracker.ack(partition, 211);
-        Assert.assertTrue(offsetToCommit.isPresent());
-        Assert.assertEquals(212, offsetToCommit.getAsLong());
+        Assert.assertFalse(offsetTracker.ack(partition, 210).isPresent());
+        Assert.assertEquals(212, offsetTracker.ack(partition, 211).getAsLong());
     }
 
     @Test
     public void testResetWhenSomeBufferedRecordsFromPreviousSession() {
         int pageSize = 3;
         int maxOpenPagesPerPartition = 5;
-        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition);
+        OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
         final int partition = 0;
 
         // These tracks make two pages open.
@@ -265,10 +259,8 @@ public class OffsetTrackerTest {
         offsetTracker.track(partition, 2);  // From first session
         offsetTracker.track(partition, 3);  // From first session
 
-        // These acks make the pages partially completed.
-        offsetTracker.ack(partition, 0);  // For first session
-        offsetTracker.ack(partition, 1);  // For first session
-        offsetTracker.ack(partition, 2);  // For first session
+        // These acks make the pages partially completed [0..2].
+        IntStream.range(0,3).forEach(i -> offsetTracker.track(partition, i)); // For first session
 
         // We will reset offset tracker to simulate partitions re-balance.
         offsetTracker.reset();
@@ -281,13 +273,7 @@ public class OffsetTrackerTest {
         // last committed offset of the first session.
         offsetTracker.track(partition, 3);  // Now we have this offset twice in pending records.
         offsetTracker.track(partition, 4);  // Now we have this offset twice in pending records.
-        offsetTracker.track(partition, 5);
-        offsetTracker.track(partition, 6);
-        offsetTracker.track(partition, 7);
-        offsetTracker.track(partition, 8);
-        offsetTracker.track(partition, 9);
-        offsetTracker.track(partition, 10);
-        offsetTracker.track(partition, 11);
+        IntStream.range(5,12).forEach(i -> offsetTracker.track(partition, i)); // [5..11]
 
         OptionalLong offsetToCommit;
         offsetToCommit = offsetTracker.ack(partition, 3);  // Ack #1 for offset 3

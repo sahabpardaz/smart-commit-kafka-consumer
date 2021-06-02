@@ -1,4 +1,8 @@
 # Smart Commit Kafka Consumer
+[![Tests](https://github.com/sahabpardaz/smart-commit-kafka-consumer/actions/workflows/maven.yml/badge.svg?branch=master)](https://github.com/sahabpardaz/smart-commit-kafka-consumer/actions/workflows/maven.yml)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=sahabpardaz_smart-commit-kafka-consumer&metric=coverage)](https://sonarcloud.io/dashboard?id=sahabpardaz_smart-commit-kafka-consumer)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=sahabpardaz_smart-commit-kafka-consumer&metric=alert_status)](https://sonarcloud.io/dashboard?id=sahabpardaz_smart-commit-kafka-consumer)
+
 It is a wrapper around Kafka consumer which implements *smart commit* feature.
 The client neither commits the offsets manually nor uses the default *auto commit* feature,
 but acks the records which their process is completed.
