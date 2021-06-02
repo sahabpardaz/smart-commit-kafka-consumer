@@ -6,7 +6,7 @@
 
   <groupId>ir.sahab</groupId>
   <artifactId>smart-commit-kafka-consumer</artifactId>
-  <version>1.4.2-kafka2.7.1</version>
+  <version>1.4.3-kafka2.7.1</version>
 
   <repositories>
     <repository>
