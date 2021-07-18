@@ -186,6 +186,31 @@ public class OffsetTrackerTest {
     }
 
     @Test
+    public void testWholePageGap() {
+        final int pageSize = 3;
+        final int maxOpenPagesPerPartition = 4;
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
+        final int partition = 0;
+
+        // Track calls which opens the first page: [0..2]
+        offsetTracker.track(partition, 1);
+
+        // Track calls which opens the third page: [6..8] and makes the middle page missing
+        // Offset 1 completes the first page because the next offsets are inside the recognized gap.
+        offsetTracker.track(partition, 8);
+
+
+        OptionalLong offsetToCommit;
+        offsetToCommit = offsetTracker.ack(partition, 1);
+        Assert.assertTrue(offsetToCommit.isPresent());
+        Assert.assertEquals(3, offsetToCommit.getAsLong());
+
+        offsetToCommit = offsetTracker.ack(partition, 8);
+        Assert.assertTrue(offsetToCommit.isPresent());
+        Assert.assertEquals(9, offsetToCommit.getAsLong());
+    }
+
+    @Test
     public void testPartitionFull() {
         int pageSize = 2;
         int maxOpenPagesPerPartition = 2;

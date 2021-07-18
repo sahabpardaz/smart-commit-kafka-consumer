@@ -4,16 +4,11 @@ import com.codahale.metrics.Gauge;
 import com.codahale.metrics.MetricRegistry;
 import ir.sahab.dropwizardmetrics.LabeledMetric;
 import ir.sahab.logthrottle.LogThrottle;
-import java.util.BitSet;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.OptionalLong;
-import java.util.SortedSet;
-import java.util.TreeSet;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.*;
 
 /**
  * Tracker for Kafka consumed records which are delivered to their targets. Here is the problem
@@ -118,19 +113,17 @@ public class OffsetTracker {
      * for each partition which is under track.
      */
     private class PartitionTracker {
-        private final Map<Long /*page index*/, PageTracker> pageTrackers = new HashMap<>();
+        private final NavigableMap<Long /*page index*/, PageTracker> pageTrackers = new TreeMap<>();
         private final SortedSet<Long /*page index*/> completedPages = new TreeSet<>();
-        private long lastConsecutivePageIndex;
-        private volatile int openPagesSize = 0;
-        private volatile int completedPagesSize = 0;
+        private long lastCompletedPageIndex;
 
         public PartitionTracker(int partition, long initialOffset) {
-            lastConsecutivePageIndex = offsetToPage(initialOffset) - 1;
+            lastCompletedPageIndex = offsetToPage(initialOffset) - 1;
             String partitionLabel = String.valueOf(partition);
             metricRegistry.register(LabeledMetric.name(OPEN_PAGES).label(PARTITION, partitionLabel).toString(),
-                    (Gauge<Integer>) () -> openPagesSize);
+                    (Gauge<Integer>) pageTrackers::size);
             metricRegistry.register(LabeledMetric.name(COMPLETED_PAGES).label(PARTITION, partitionLabel).toString(),
-                    (Gauge<Integer>) () -> completedPagesSize);
+                    (Gauge<Integer>) completedPages::size);
         }
 
         boolean track(long offset) {
@@ -143,7 +136,6 @@ public class OffsetTracker {
                 }
                 pageTracker = new PageTracker(pageSize, pageOffset);
                 pageTrackers.put(pageIndex, pageTracker);
-                openPagesSize = pageTrackers.size();
                 // Since all the offsets will be tracked in order, we don't expect any more tracks for previous page.
                 markPageNoMoreTracks(pageIndex - 1);
             }
@@ -155,12 +147,13 @@ public class OffsetTracker {
          * Marks a page with the noMoreTracks flag and handles necessary stuff if it gets completed.
          */
         private void markPageNoMoreTracks(long pageIndex) {
-            PageTracker pageTracker = pageTrackers.get(pageIndex);
-            if (pageTracker != null) {
+            Map.Entry<Long, PageTracker> entry = pageTrackers.floorEntry(pageIndex);
+            if (entry != null) {
+                PageTracker pageTracker = entry.getValue();
                 pageTracker.markNoMoreTracks();
                 if (pageTracker.isCompleted()) {
                     pageTrackers.remove(pageIndex);
-                    if (pageIndex > lastConsecutivePageIndex) {
+                    if (pageIndex > lastCompletedPageIndex) {
                         completedPages.add(pageIndex);
                     }
                 }
@@ -192,8 +185,7 @@ public class OffsetTracker {
             // If the page is completed (all offsets in the page is acked), add the pages to the
             // list of completed pages.
             pageTrackers.remove(pageIndex);
-            openPagesSize = pageTrackers.size();
-            if (pageIndex <= lastConsecutivePageIndex) {
+            if (pageIndex <= lastCompletedPageIndex) {
                 logThrottle.logger("redundant-page").warn("An ack received which completes a page "
                                 + "but the page is already completed. It is valid if it has "
                                 + "been a re-balance recently. offset: {}, completed page index: {}",
@@ -201,18 +193,17 @@ public class OffsetTracker {
                 return OptionalLong.empty();
             }
             completedPages.add(pageIndex);
-            completedPagesSize = completedPages.size();
 
             // See whether the completed pages, construct a consecutive chain.
             int numConsecutive = 0;
             Iterator<Long> iterator = completedPages.iterator();
             while (iterator.hasNext()) {
                 long index = iterator.next();
-                if (index != lastConsecutivePageIndex + 1) {
+                if (!pageTrackers.isEmpty() && index >= pageTrackers.firstKey()) {
                     break;
                 }
                 numConsecutive++;
-                lastConsecutivePageIndex = index;
+                lastCompletedPageIndex = index;
             }
 
             // There is no consecutive completed pages. So there is no offset to report as
@@ -228,8 +219,7 @@ public class OffsetTracker {
                 iterator.next();
                 iterator.remove();
             }
-            completedPagesSize = completedPages.size();
-            return OptionalLong.of(pageToFirstOffset(lastConsecutivePageIndex + 1));
+            return OptionalLong.of(pageToFirstOffset(lastCompletedPageIndex + 1));
         }
 
         private long pageToFirstOffset(long pageIndex) {
