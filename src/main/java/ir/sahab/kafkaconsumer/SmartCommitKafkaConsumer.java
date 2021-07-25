@@ -70,7 +70,7 @@ import org.slf4j.LoggerFactory;
  */
 public class SmartCommitKafkaConsumer<K, V> implements Closeable {
     private static final Logger logger = LoggerFactory.getLogger(SmartCommitKafkaConsumer.class);
-    private static final LogThrottle logThrottle = new LogThrottle(logger);
+    private static final LogThrottle logThrottle = new LogThrottle(logger, 15_000);
 
     private static final Duration POLL_TIMEOUT_MILLIS = Duration.ofMillis(10);
 

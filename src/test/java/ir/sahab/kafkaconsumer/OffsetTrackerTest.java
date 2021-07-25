@@ -4,6 +4,7 @@ import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
 import com.codahale.metrics.MetricRegistry;
+import ir.sahab.dropwizardmetrics.LabeledMetric;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -105,26 +106,60 @@ public class OffsetTrackerTest {
 
     @Test
     public void testPageWithTailGap() {
-        final int pageSize = 3;
+        final int pageSize = 4;
         final int maxOpenPagesPerPartition = 2;
-        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, new MetricRegistry());
+        MetricRegistry metricRegistry = new MetricRegistry();
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, metricRegistry);
+        final int partition = 0;
+
+        // Track calls which opens the first page: [0..3]
+        offsetTracker.track(partition, 1);
+        offsetTracker.track(partition, 2);
+        Assert.assertEquals(1, getOpenPageSize(metricRegistry, partition));
+
+        // Track calls which opens the second page: [4..7] and makes a gap for the first page
+        offsetTracker.track(partition, 6);
+        offsetTracker.track(partition, 7);
+        Assert.assertEquals(2, getOpenPageSize(metricRegistry, partition));
+
+        // Offset 2 completes the second page but it must not be committed cause its offset is deleted in Kafka.
+        Assert.assertFalse(offsetTracker.ack(partition, 1).isPresent());
+        Assert.assertEquals(2, getOpenPageSize(metricRegistry, partition));
+        Assert.assertFalse(offsetTracker.ack(partition, 2).isPresent());
+        Assert.assertEquals(1, getOpenPageSize(metricRegistry, partition));
+
+        // Offset 7 should complete the page and the new page should be committed.
+        Assert.assertFalse(offsetTracker.ack(partition, 6).isPresent());
+        Assert.assertEquals(8, offsetTracker.ack(partition, 7).getAsLong());
+
+        Assert.assertEquals(0, getCompletedPageSize(metricRegistry, partition));
+        Assert.assertEquals(0, getOpenPageSize(metricRegistry, partition));
+    }
+
+    @Test
+    public void testMultiplePageGap() {
+        final int pageSize = 3;
+        final int maxOpenPagesPerPartition = 4;
+        MetricRegistry metricRegistry = new MetricRegistry();
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, metricRegistry);
         final int partition = 0;
 
         // Track calls which opens the first page: [0..2]
         offsetTracker.track(partition, 1);
 
-        // Track calls which opens the second page: [3..5] and makes a gap for the first page
-        // Offset 1 completes the first page because the next offsets are inside the recognized gap.
-        offsetTracker.track(partition, 3);
+        // Track calls which opens the 4th page: [9..11] and makes a gap for the first page
+        // Ack 11 should complete the page and commit the offset cause older pages should be ignored.
+        offsetTracker.track(partition, 10);
+        offsetTracker.track(partition, 11);
+        Assert.assertFalse(offsetTracker.ack(partition, 10).isPresent());
+        Assert.assertEquals(2, getOpenPageSize(metricRegistry, partition));
+        Assert.assertEquals(12, offsetTracker.ack(partition, 11).getAsLong());
+        Assert.assertEquals(1, getOpenPageSize(metricRegistry, partition));
+        Assert.assertEquals(0, getCompletedPageSize(metricRegistry, partition));
 
-
-        OptionalLong offsetToCommit;
-        offsetToCommit = offsetTracker.ack(partition, 1);
-        Assert.assertTrue(offsetToCommit.isPresent());
-        Assert.assertEquals(3, offsetToCommit.getAsLong());
-
-        offsetToCommit = offsetTracker.ack(partition, 3);
-        Assert.assertFalse(offsetToCommit.isPresent());
+        Assert.assertFalse(offsetTracker.ack(partition, 1).isPresent());
+        Assert.assertEquals(0, getOpenPageSize(metricRegistry, partition));
+        Assert.assertEquals(0, getCompletedPageSize(metricRegistry, partition));
     }
 
     @Test
@@ -268,7 +303,7 @@ public class OffsetTrackerTest {
         IntStream.range(0,4).forEach(i -> offsetTracker.track(partition, i)); // From first session
 
         // These acks make the pages partially completed [0..2].
-        IntStream.range(0,3).forEach(i -> offsetTracker.track(partition, i)); // For first session
+        IntStream.range(0,3).forEach(i -> offsetTracker.ack(partition, i)); // For first session
 
         // We will remove offset tracker to simulate partitions re-balance.
         offsetTracker.remove(partition);
@@ -303,5 +338,19 @@ public class OffsetTrackerTest {
         offsetToCommit = offsetTracker.ack(partition, 11);
         Assert.assertEquals(12, offsetToCommit.getAsLong());
 
+    }
+
+    private static int getCompletedPageSize(MetricRegistry metricRegistry, int partition) {
+        String metricName = LabeledMetric.name(OffsetTracker.COMPLETED_PAGES)
+                .label(OffsetTracker.PARTITION, String.valueOf(partition))
+                .toString();
+        return (int) metricRegistry.getGauges().get(metricName).getValue();
+    }
+
+    private static int getOpenPageSize(MetricRegistry metricRegistry, int partition) {
+        String metricName = LabeledMetric.name(OffsetTracker.OPEN_PAGES)
+                .label(OffsetTracker.PARTITION, String.valueOf(partition))
+                .toString();
+        return (int) metricRegistry.getGauges().get(metricName).getValue();
     }
 }
