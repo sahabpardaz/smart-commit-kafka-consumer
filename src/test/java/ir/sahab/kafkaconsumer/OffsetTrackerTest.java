@@ -147,7 +147,7 @@ public class OffsetTrackerTest {
         // Track calls which opens the first page: [0..2]
         offsetTracker.track(partition, 1);
 
-        // Track calls which opens the second page: [9..11] and makes a gap for the first page
+        // Track calls which opens the 4th page: [9..11] and makes a gap for the first page
         // Ack 11 should complete the page and commit the offset cause older pages should be ignored.
         offsetTracker.track(partition, 10);
         offsetTracker.track(partition, 11);

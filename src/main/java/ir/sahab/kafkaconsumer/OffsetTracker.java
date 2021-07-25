@@ -159,30 +159,35 @@ public class OffsetTracker {
                 return true;
             }
 
-            // Special case: we have seen an offset greater than expectation and there is a gap in the last page.
-            // We fill the gap and assume missed records are acked before.
+            // Special case: we have seen an offset greater than expectation and there is a gap.
+            // Potential reason: there is a cleanup by Kafka according to retention policy.
+            // Our reaction: we fill the gap and assume missed records are acked before. We have handled it for
+            // both cases that the gap is just in last page or the gap includes new pages.
             logThrottle.logger("offset-gap").warn("An offset received greater than expectation and there is a gap "
                     + "between records. It is valid if there is a cleanup for these offsets recently. "
                     + "offset: {}, expectedOffset: {}", offset, lastTrackedOffset + 1);
             final PageTracker lastPage = pageTrackers.get(lastOpenedPageIndex);
+            // When the gap is just in last page:
             if (pageIndex == lastOpenedPageIndex) {
-                    lastPage.bulkAck(offsetToMargin(lastTrackedOffset + 1), offsetToMargin(offset));
+                    lastPage.bulkAck(offsetToPageOffset(lastTrackedOffset + 1), offsetToPageOffset(offset));
                     return true;
             }
 
-            // Special case: The gap includes some pages in between and we must open a new page for the new offset.
-            // Missed pages will be filled and assumed to be completed before.
+            // When the gap includes new pages:
+            // We handle it by 3 actions: creating a new page for offsets after the gap, filling the last page
+            // whose tail is inside the gap, resetting the completed pages.
             final long lastPageIndexBeforeGap = lastOpenedPageIndex;
             final long lastOffsetBeforeGap = lastTrackedOffset;
             if (!openNewPageForOffset(offset)) {
                 return false;
             }
-            // Reduce the size of last page and check if it's completed.
-            boolean completed = lastPage.bulkAck(offsetToMargin(lastOffsetBeforeGap + 1), pageSize);
+            // Fill the gap of last page and check if it's completed.
+            boolean completed = lastPage.bulkAck(offsetToPageOffset(lastOffsetBeforeGap + 1), pageSize);
             if (completed) {
                 pageTrackers.remove(lastPageIndexBeforeGap);
             }
-            // There is no point in committing deleted offsets so we do not commit them.
+            // We clear the completed pages for two reasons: 1. There is no point in committing deleted offsets.
+            // 2. To make sure after this gap, we can construct consecutive pages in completed pages again.
             completedPages.clear();
             completedPagesSize = 0;
             lastConsecutivePageIndex = lastOpenedPageIndex - 1;
@@ -195,7 +200,7 @@ public class OffsetTracker {
                 return false;
             }
             long pageIndex = offsetToPage(offset);
-            int margin = offsetToMargin(offset);
+            int margin = offsetToPageOffset(offset);
             pageTrackers.put(pageIndex, new PageTracker(pageSize, margin));
             openPagesSize = pageTrackers.size();
             lastOpenedPageIndex = pageIndex;
@@ -219,7 +224,7 @@ public class OffsetTracker {
                         + "offset: {}", offset);
                 return OptionalLong.empty();
             }
-            int pageOffset = offsetToMargin(offset);
+            int pageOffset = offsetToPageOffset(offset);
             if (!pageTracker.ack(pageOffset)) {
                 return OptionalLong.empty();
             }
@@ -275,7 +280,7 @@ public class OffsetTracker {
             return offset / pageSize;
         }
 
-        private int offsetToMargin(long offset) {
+        private int offsetToPageOffset(long offset) {
             return (int)   (offset % pageSize);
         }
     }
