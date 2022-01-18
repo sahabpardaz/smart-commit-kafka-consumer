@@ -182,10 +182,12 @@ public class OffsetTracker {
             if (!openNewPageForOffset(offset)) {
                 return false;
             }
-            // Fill the gap of last page and check if it's completed.
-            boolean completed = lastPage.bulkAck(offsetToPageOffset(lastOffsetBeforeGap + 1), pageSize);
-            if (completed) {
-                pageTrackers.remove(lastPageIndexBeforeGap);
+            // Fill the gap of last page if it's not completed yet and check if it's completed.
+            if (lastPage != null) {
+                boolean completed = lastPage.bulkAck(offsetToPageOffset(lastOffsetBeforeGap + 1), pageSize);
+                if (completed) {
+                    pageTrackers.remove(lastPageIndexBeforeGap);
+                }
             }
             // We clear the completed pages for two reasons: 1. There is no point in committing deleted offsets.
             // 2. To make sure after this gap, we can construct consecutive pages in completed pages again.

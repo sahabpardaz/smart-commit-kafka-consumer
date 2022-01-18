@@ -136,6 +136,39 @@ public class OffsetTrackerTest {
     }
 
     @Test
+    public void testPageWithHeadGap() {
+        final int pageSize = 4;
+        final int maxOpenPagesPerPartition = 2;
+        MetricRegistry metricRegistry = new MetricRegistry();
+        final OffsetTracker offsetTracker = new OffsetTracker(pageSize, maxOpenPagesPerPartition, metricRegistry);
+        final int partition = 0;
+
+        // Track calls which opens the first page: [0..3]
+        offsetTracker.track(partition, 0);
+        offsetTracker.track(partition, 1);
+        offsetTracker.track(partition, 2);
+        offsetTracker.track(partition, 3);
+        Assert.assertEquals(1, getOpenPageSize(metricRegistry, partition));
+
+        Assert.assertFalse(offsetTracker.ack(partition, 0).isPresent());
+        Assert.assertFalse(offsetTracker.ack(partition, 1).isPresent());
+        Assert.assertFalse(offsetTracker.ack(partition, 2).isPresent());
+        Assert.assertEquals(4, offsetTracker.ack(partition, 3).getAsLong());
+
+        // Track calls which opens the second page: [4..7] and makes a gap for the first page
+        offsetTracker.track(partition, 6);
+        offsetTracker.track(partition, 7);
+        Assert.assertEquals(1, getOpenPageSize(metricRegistry, partition));
+
+        // Offset 7 should complete the page and the new page should be committed.
+        Assert.assertFalse(offsetTracker.ack(partition, 6).isPresent());
+        Assert.assertEquals(8, offsetTracker.ack(partition, 7).getAsLong());
+
+        Assert.assertEquals(0, getCompletedPageSize(metricRegistry, partition));
+        Assert.assertEquals(0, getOpenPageSize(metricRegistry, partition));
+    }
+
+    @Test
     public void testMultiplePageGap() {
         final int pageSize = 3;
         final int maxOpenPagesPerPartition = 4;
